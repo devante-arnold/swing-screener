@@ -229,9 +229,6 @@ def main():
         screener = SwingScreener(min_market_cap, min_volume, confluence_threshold)
         progress_bar = st.progress(0)
         status_text = st.empty()
-        def update_progress(current, total, ticker):
-            progress_bar.progress(current/total)
-            status_text.text(f"Scanning {ticker}... ({current}/{total})")
         with st.spinner("Checking market regime..."):
             results, market_bullish, vix_level = screener.scan_market(update_progress)
         progress_bar.empty()
@@ -239,7 +236,8 @@ def main():
         
         # Market regime display
         regime_color = "🟢" if market_bullish else "🔴"
-        st.info(f"{regime_color} **Market Regime:** {'BULLISH' if market_bullish else 'BEARISH'} (SPY vs 50MA) | **VIX:** {vix_level:.1f if vix_level else 'HIGH'}")
+        vix_text = f"{vix_level:.1f}" if vix_level else "HIGH (>25)"
+        st.info(f"{regime_color} **Market Regime:** {'BULLISH' if market_bullish else 'BEARISH'} (SPY vs 50MA) | **VIX:** {vix_text}")
         
         if results:
             st.success(f"✅ Found {len(results)} setups aligned with market!")
