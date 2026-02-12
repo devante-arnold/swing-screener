@@ -222,6 +222,25 @@ def main():
             with col4:
                 st.metric("Avg Score", f"{sum(r['score'] for r in results)/len(results):.1f}/7")
             st.markdown("---")
+            
+            # VIX Guide Table
+            st.subheader("📊 VIX Volatility Guide")
+            vix_data = {
+                "VIX Level": ["10-15", "15-20", "20-25", "25-30", "30-40", "40+"],
+                "Market State": ["Low volatility", "Normal", "Elevated", "High", "Very High", "Extreme"],
+                "What It Means": [
+                    "Calm market, normal position sizes",
+                    "Typical market conditions",
+                    "Start being cautious",
+                    "⚠️ Warning appears - reduce size 50%",
+                    "Major uncertainty, consider sitting out",
+                    "Crisis mode (like COVID crash)"
+                ]
+            }
+            vix_df = pd.DataFrame(vix_data)
+            st.table(vix_df)
+            
+            st.markdown("---")
             col1,col2 = st.columns(2)
             with col1:
                 setup_filter = st.multiselect("Setup Type", list(set(r['setup_type'] for r in results)), default=list(set(r['setup_type'] for r in results)))
