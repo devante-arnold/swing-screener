@@ -8,11 +8,7 @@ import time
 
 st.set_page_config(page_title="Swing Trade Screener", page_icon="📊", layout="wide")
 
-st.markdown("""
-<style>
-    .main-header { font-size: 2.5rem; font-weight: bold; color: #1f77b4; }
-</style>
-""", unsafe_allow_html=True)
+st.markdown("""<style>.main-header{font-size:2.5rem;font-weight:bold;color:#1f77b4;}</style>""", unsafe_allow_html=True)
 
 class SwingScreener:
     def __init__(self, min_market_cap=2e9, min_volume=500000, confluence_threshold=4):
@@ -28,7 +24,7 @@ class SwingScreener:
     
     def calculate_pivot_points(self, high, low, close):
         pivot = (high + low + close) / 3
-        return {'PP': pivot, 'R1': (2*pivot)-low, 'R2': pivot+(high-low), 'S1': (2*pivot)-high, 'S2': pivot-(high-low)}
+        return {'PP':pivot,'R1':(2*pivot)-low,'R2':pivot+(high-low),'S1':(2*pivot)-high,'S2':pivot-(high-low)}
     
     def calculate_vrvp_levels(self, df, days=30):
         try:
@@ -48,9 +44,9 @@ class SwingScreener:
                 elif cumulative > total_vol * 0.85:
                     vah = price
                     break
-            return {'POC': poc, 'VAH': vah, 'VAL': val}
+            return {'POC':poc,'VAH':vah,'VAL':val}
         except:
-            return {'POC': 0, 'VAH': 0, 'VAL': 0}
+            return {'POC':0,'VAH':0,'VAL':0}
     
     def calculate_atr(self, df, period=14):
         high, low, close = df['High'], df['Low'], df['Close'].shift(1)
@@ -79,50 +75,35 @@ class SwingScreener:
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
             rsi = 100 - (100 / (1 + gain/loss))
             current_rsi = rsi.iloc[-1] if not pd.isna(rsi.iloc[-1]) else 50
-            
-            # NEW: Price distance from EMA
             price_distance = abs(current_price - ema_20) / ema_20
             is_near_ema = price_distance < 0.03
             is_stretched = price_distance > 0.05
-            
             score, factors = 0, []
-            
-            # Pivot check
             for name, price in pivots.items():
                 if abs(current_price - price) / current_price < 0.02:
                     score += 1
                     factors.append(f"Near {name}")
                     break
-            
-            # VRVP check
             for name, price in vrvp.items():
                 if price > 0 and abs(current_price - price) / current_price < 0.02:
                     score += 1
                     factors.append(f"VRVP {name}")
                     break
-            
-            # EMA alignment
             if current_price > ema_20 > ema_50:
                 score += 1
                 factors.append("Bullish EMA")
             elif current_price < ema_20 < ema_50:
                 score += 1
                 factors.append("Bearish EMA")
-            
-            # Volume
             if volume_ratio > 1.5:
                 score += 1
                 factors.append(f"Volume {volume_ratio:.1f}x")
-            
-            # Previous week H/L
             if abs(current_price - prev_week['High']) / current_price < 0.03:
                 score += 1
                 factors.append("Prev week high")
             elif abs(current_price - prev_week['Low']) / current_price < 0.03:
                 score += 1
                 factors.append("Prev week low")
-            
-            # Determine setup type first
             setup_type = "Range-bound"
             if current_price > pivots['R1'] and current_price > ema_20:
                 setup_type = "Bullish breakout"
@@ -132,28 +113,22 @@ class SwingScreener:
                 setup_type = "Bullish reversal"
             elif current_price < ema_20 and abs(current_price - vrvp['VAH']) / current_price < 0.02:
                 setup_type = "Bearish reversal"
-            
-            # NEW: Stricter RSI check
             if "breakout" in setup_type.lower() or "breakdown" in setup_type.lower():
                 if current_rsi > 50:
                     score += 1
                     factors.append(f"RSI {current_rsi:.0f}")
-            else:  # Reversal
+            else:
                 if (current_rsi < 45 and "Bullish" in setup_type) or (current_rsi > 55 and "Bearish" in setup_type):
                     score += 1
                     factors.append(f"RSI {current_rsi:.0f}")
-            
-            # NEW: Price distance check
             if "breakout" in setup_type.lower() or "breakdown" in setup_type.lower():
                 if is_near_ema:
                     score += 1
                     factors.append("Near EMA (coiled)")
-            else:  # Reversal
+            else:
                 if is_stretched:
                     score += 1
                     factors.append("Stretched from EMA")
-            
-            # Targets
             if "Bullish" in setup_type:
                 target = pivots['R2'] if current_price < pivots['R2'] else vrvp['VAH']
                 stop = current_price - (2*atr)
@@ -162,16 +137,13 @@ class SwingScreener:
                 target = pivots['S2'] if current_price > pivots['S2'] else vrvp['VAL']
                 stop = current_price + (2*atr)
                 option_type, strike = "PUT", round(current_price * 0.98)
-            
             if score < self.confluence_threshold:
                 return None
-            
             return {'ticker':ticker,'price':current_price,'score':score,'setup_type':setup_type,'factors':factors,'option_type':option_type,'strike':strike,'target':target,'stop':stop,'atr':atr,'rsi':current_rsi,'volume_ratio':volume_ratio}
         except:
             return None
     
     def scan_market(self, progress_callback=None):
-        # NEW: Market regime check
         market_bullish = True
         vix_level = None
         try:
@@ -186,7 +158,6 @@ class SwingScreener:
             high_vix = vix_level > 25
         except:
             high_vix = False
-        
         tickers = self.get_market_tickers()
         results = []
         for i, ticker in enumerate(tickers):
@@ -202,50 +173,45 @@ class SwingScreener:
                     continue
                 result = self.check_confluence(ticker, data)
                 if result:
-                    # NEW: Market regime filter
                     if market_bullish and "Bearish" in result['setup_type']:
                         continue
                     elif not market_bullish and "Bullish" in result['setup_type']:
                         continue
-                    # NEW: VIX warning
                     if high_vix:
-                        result['warning'] = '⚠️ High VIX - reduce size 50%'
+                        result['warning'] = '⚠️ High VIX'
                     results.append(result)
             except:
                 continue
         results.sort(key=lambda x: x['score'], reverse=True)
         return results, market_bullish, vix_level
-            except:
-                continue
-        results.sort(key=lambda x: x['score'], reverse=True)
-        return results, market_bullish, current_vix if not high_vix else None
 
 def main():
     st.markdown('<p class="main-header">📊 Swing Trade Screener</p>', unsafe_allow_html=True)
     st.markdown("**AI-powered confluence scanner with market regime filter**")
     st.sidebar.header("⚙️ Settings")
-    confluence_threshold = st.sidebar.slider("Minimum Confluence Score", 4, 7, 4)
+    confluence_threshold = st.sidebar.slider("Min Confluence", 4, 7, 4)
     min_market_cap = st.sidebar.selectbox("Min Market Cap", [500e6,1e9,2e9,5e9,10e9], index=2, format_func=lambda x: f"${x/1e9:.1f}B")
-    min_volume = st.sidebar.selectbox("Min Daily Volume", [100000,250000,500000,1000000], index=2, format_func=lambda x: f"{x/1000:.0f}K")
-    slack_webhook = st.sidebar.text_input("Slack Webhook (optional)", type="password")
+    min_volume = st.sidebar.selectbox("Min Volume", [100000,250000,500000,1000000], index=2, format_func=lambda x: f"{x/1000:.0f}K")
+    slack_webhook = st.sidebar.text_input("Slack Webhook", type="password")
     scan_button = st.button("🚀 Run Market Scan", type="primary", use_container_width=True)
     
     if scan_button:
         screener = SwingScreener(min_market_cap, min_volume, confluence_threshold)
         progress_bar = st.progress(0)
         status_text = st.empty()
-        with st.spinner("Checking market regime..."):
+        def update_progress(current, total, ticker):
+            progress_bar.progress(current/total)
+            status_text.text(f"Scanning {ticker}... ({current}/{total})")
+        with st.spinner("Checking market..."):
             results, market_bullish, vix_level = screener.scan_market(update_progress)
         progress_bar.empty()
         status_text.empty()
-        
-        # Market regime display
         regime_color = "🟢" if market_bullish else "🔴"
-        vix_text = f"{vix_level:.1f}" if vix_level else "HIGH (>25)"
-        st.info(f"{regime_color} **Market Regime:** {'BULLISH' if market_bullish else 'BEARISH'} (SPY vs 50MA) | **VIX:** {vix_text}")
+        vix_text = f"{vix_level:.1f}" if vix_level else "N/A"
+        st.info(f"{regime_color} **Market:** {'BULLISH' if market_bullish else 'BEARISH'} | **VIX:** {vix_text}")
         
         if results:
-            st.success(f"✅ Found {len(results)} setups aligned with market!")
+            st.success(f"✅ Found {len(results)} setups!")
             col1,col2,col3,col4 = st.columns(4)
             with col1:
                 st.metric("Total", len(results))
@@ -256,7 +222,6 @@ def main():
             with col4:
                 st.metric("Avg Score", f"{sum(r['score'] for r in results)/len(results):.1f}/7")
             st.markdown("---")
-            st.subheader("🔍 Filter")
             col1,col2 = st.columns(2)
             with col1:
                 setup_filter = st.multiselect("Setup Type", list(set(r['setup_type'] for r in results)), default=list(set(r['setup_type'] for r in results)))
@@ -266,55 +231,46 @@ def main():
             st.info(f"Showing {len(filtered)} of {len(results)}")
             for i, s in enumerate(filtered[:50], 1):
                 warning = s.get('warning', '')
-                with st.expander(f"{'🟢' if 'Bullish' in s['setup_type'] else '🔴'} **{i}. {s['ticker']}** - ${s['price']:.2f} (Score: {s['score']}/7) {warning}", expanded=(i<=10)):
+                with st.expander(f"{'🟢' if 'Bullish' in s['setup_type'] else '🔴'} **{i}. {s['ticker']}** ${s['price']:.2f} ({s['score']}/7) {warning}", expanded=(i<=10)):
                     col1,col2 = st.columns(2)
                     with col1:
                         st.markdown(f"**Setup:** {s['setup_type']}")
                         st.markdown(f"**Entry:** {s['option_type']} ${s['strike']}")
                         st.markdown(f"**Target:** ${s['target']:.2f} | **Stop:** ${s['stop']:.2f}")
                     with col2:
-                        st.markdown(f"**RSI:** {s['rsi']:.1f} | **Volume:** {s['volume_ratio']:.1f}x")
+                        st.markdown(f"**RSI:** {s['rsi']:.1f} | **Vol:** {s['volume_ratio']:.1f}x")
                         st.markdown(f"**ATR:** ${s['atr']:.2f}")
-                    st.markdown(f"**Confluence:** {', '.join(s['factors'])}")
+                    st.markdown(f"**Factors:** {', '.join(s['factors'])}")
             csv = pd.DataFrame(filtered).to_csv(index=False)
-            st.download_button("📥 CSV", csv, f"setups_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
-            if slack_webhook and st.button("📱 Send to Slack"):
-                with st.spinner("Sending..."):
-                    try:
-                        for start in [0,10,20]:
-                            batch = filtered[start:start+10]
-                            if not batch:
-                                break
-                            blocks = [{"type":"header","text":{"type":"plain_text","text":f"📊 {start+1}-{start+len(batch)}"}}]
-                            for j, s in enumerate(batch, start+1):
-                                emoji = "🟢" if "Bullish" in s['setup_type'] else "🔴"
-                                blocks.append({"type":"section","text":{"type":"mrkdwn","text":f"{emoji} *{j}. {s['ticker']}* ${s['price']:.2f}\n*Entry:* {s['option_type']} ${s['strike']}\n*Target:* ${s['target']:.2f}"}})
-                                blocks.append({"type":"divider"})
-                            requests.post(slack_webhook, json={"blocks":blocks})
-                            time.sleep(1)
-                        st.success("✅ Sent!")
-                    except Exception as e:
-                        st.error(f"❌ Failed: {e}")
+            st.download_button("📥 CSV", csv, f"setups_{datetime.now().strftime('%Y%m%d')}.csv")
+            if slack_webhook and st.button("📱 Slack"):
+                try:
+                    for start in [0,10,20]:
+                        batch = filtered[start:start+10]
+                        if not batch:
+                            break
+                        blocks = [{"type":"header","text":{"type":"plain_text","text":f"📊 {start+1}-{start+len(batch)}"}}]
+                        for j, s in enumerate(batch, start+1):
+                            emoji = "🟢" if "Bullish" in s['setup_type'] else "🔴"
+                            blocks.append({"type":"section","text":{"type":"mrkdwn","text":f"{emoji} *{j}. {s['ticker']}* ${s['price']:.2f}\n*Entry:* {s['option_type']} ${s['strike']}\n*Target:* ${s['target']:.2f}"}})
+                            blocks.append({"type":"divider"})
+                        requests.post(slack_webhook, json={"blocks":blocks})
+                        time.sleep(1)
+                    st.success("✅ Sent!")
+                except Exception as e:
+                    st.error(f"❌ {e}")
         else:
-            st.warning("No setups found. Try lowering threshold or check back when market regime changes.")
+            st.warning("No setups found.")
     
-    with st.expander("ℹ️ Strategy Info"):
+    with st.expander("ℹ️ Info"):
         st.markdown("""
         ### 7 Confluence Factors:
-        1. **Pivot Levels** - R1, R2, S1, S2
-        2. **VRVP** - POC, VAH, VAL
-        3. **EMAs** - Trend alignment
-        4. **Volume** - Spike confirmation
-        5. **Previous Week H/L**
-        6. **RSI** - Momentum (stricter rules)
-        7. **Price Distance from EMA** - Coiled/stretched ⭐NEW
+        1. Pivot Levels | 2. VRVP | 3. EMAs | 4. Volume | 5. Prev Week H/L | 6. RSI | 7. Price Distance ⭐
         
-        ### Market Regime Filter ⭐NEW:
-        - **Bullish Market:** Only shows bullish setups
-        - **Bearish Market:** Only shows bearish setups
-        - **High VIX (>25):** Warning to reduce position size
-        
-        **Min 4/7 factors required**
+        ### Market Filter ⭐:
+        - Bullish market → Only bullish setups
+        - Bearish market → Only bearish setups
+        - High VIX (>25) → Warning shown
         """)
 
 if __name__ == "__main__":
