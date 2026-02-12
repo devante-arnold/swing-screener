@@ -172,6 +172,8 @@ class SwingScreener:
     
     def scan_market(self, progress_callback=None):
         # NEW: Market regime check
+        market_bullish = True
+        vix_level = None
         try:
             spy = yf.Ticker('SPY')
             spy_data = spy.history(period='3mo')
@@ -180,10 +182,9 @@ class SwingScreener:
             market_bullish = spy_price > spy_ma50
             vix = yf.Ticker('^VIX')
             vix_data = vix.history(period='5d')
-            current_vix = vix_data['Close'].iloc[-1]
-            high_vix = current_vix > 25
+            vix_level = vix_data['Close'].iloc[-1]
+            high_vix = vix_level > 25
         except:
-            market_bullish = True
             high_vix = False
         
         tickers = self.get_market_tickers()
@@ -210,6 +211,10 @@ class SwingScreener:
                     if high_vix:
                         result['warning'] = '⚠️ High VIX - reduce size 50%'
                     results.append(result)
+            except:
+                continue
+        results.sort(key=lambda x: x['score'], reverse=True)
+        return results, market_bullish, vix_level
             except:
                 continue
         results.sort(key=lambda x: x['score'], reverse=True)
