@@ -215,7 +215,7 @@ class SwingScreener:
                 continue
         results.sort(key=lambda x: x['score'], reverse=True)
         return results, market_bullish, vix_level
-            except:
+        except:
                 continue
         results.sort(key=lambda x: x['score'], reverse=True)
         return results, market_bullish, current_vix if not high_vix else None
