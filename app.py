@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import requests
 from typing import List, Dict
 import time
+from zoneinfo import ZoneInfo
 import json
 
 # Page config
@@ -414,7 +415,22 @@ def main():
     
     with col2:
         if st.session_state.scan_timestamp:
-            st.caption(f"Last scan: {st.session_state.scan_timestamp.strftime('%I:%M %p')}")
+            # Convert UTC to user's local time using JavaScript
+            utc_timestamp = st.session_state.scan_timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')
+            st.components.v1.html(f"""
+                <div style="margin-top: 8px; font-size: 0.9em; color: #666;">
+                    Last scan: <span id="local-time"></span>
+                </div>
+                <script>
+                    const utcDate = new Date('{utc_timestamp}');
+                    const localTime = utcDate.toLocaleTimeString('en-US', {{
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true
+                    }});
+                    document.getElementById('local-time').textContent = localTime;
+                </script>
+            """, height=30)
     
     # Run scan or display cached results
     if scan_button:
@@ -453,9 +469,9 @@ def main():
             market_bullish = True
             current_vix = None
         
-        # Cache results
+        # Cache results with UTC timestamp
         st.session_state.scan_results = results
-        st.session_state.scan_timestamp = datetime.now()
+        st.session_state.scan_timestamp = datetime.utcnow()  # Store in UTC
         st.session_state.market_regime = market_bullish
         st.session_state.vix_level = current_vix
     
