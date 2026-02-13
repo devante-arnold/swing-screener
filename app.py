@@ -26,6 +26,13 @@ if 'exit_checklist' not in st.session_state:
         'loss_50': False
     }
 
+# Initialize scan results cache
+if 'scan_results' not in st.session_state:
+    st.session_state.scan_results = None
+    st.session_state.scan_timestamp = None
+    st.session_state.market_regime = None
+    st.session_state.vix_level = None
+
 # Custom CSS
 st.markdown("""
 <style>
@@ -405,7 +412,11 @@ def main():
     with col1:
         scan_button = st.button("🚀 Run Market Scan", type="primary", use_container_width=True)
     
-    # Run scan
+    with col2:
+        if st.session_state.scan_timestamp:
+            st.caption(f"Last scan: {st.session_state.scan_timestamp.strftime('%I:%M %p')}")
+    
+    # Run scan or display cached results
     if scan_button:
         screener = SwingScreener(
             min_market_cap=min_market_cap,
@@ -427,6 +438,33 @@ def main():
         progress_bar.empty()
         status_text.empty()
         
+        # Get market regime and VIX
+        try:
+            spy = yf.Ticker('SPY')
+            spy_data = spy.history(period='3mo')
+            spy_price = spy_data['Close'].iloc[-1]
+            spy_ma50 = spy_data['Close'].rolling(50).mean().iloc[-1]
+            market_bullish = spy_price > spy_ma50
+            
+            vix = yf.Ticker('^VIX')
+            vix_data = vix.history(period='5d')
+            current_vix = vix_data['Close'].iloc[-1]
+        except:
+            market_bullish = True
+            current_vix = None
+        
+        # Cache results
+        st.session_state.scan_results = results
+        st.session_state.scan_timestamp = datetime.now()
+        st.session_state.market_regime = market_bullish
+        st.session_state.vix_level = current_vix
+    
+    # Display results (from cache or fresh scan)
+    if st.session_state.scan_results is not None:
+        results = st.session_state.scan_results
+        market_bullish = st.session_state.market_regime
+        current_vix = st.session_state.vix_level
+        
         if results:
             st.success(f"✅ Found {len(results)} high-quality setups!")
             
@@ -443,6 +481,13 @@ def main():
             with col4:
                 avg_score = sum(r['score'] for r in results) / len(results)
                 st.metric("Avg Score", f"{avg_score:.1f}/7")
+            
+            # Market Regime & VIX Display
+            regime_color = "🟢" if market_bullish else "🔴"
+            regime_text = "BULLISH" if market_bullish else "BEARISH"
+            vix_text = f"{current_vix:.1f}" if current_vix else "N/A"
+            
+            st.info(f"{regime_color} **Market Regime:** {regime_text} (SPY vs 50MA) | **VIX:** {vix_text}")
             
             st.markdown("---")
             
@@ -513,6 +558,36 @@ def main():
                     f"(Score: {setup['score']}/7)",
                     expanded=(i <= 10)
                 ):
+                    # TradingView Chart
+                    tradingview_html = f"""
+                    <!-- TradingView Widget BEGIN -->
+                    <div class="tradingview-widget-container" style="height:400px;">
+                      <div class="tradingview-widget-container__widget"></div>
+                      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+                      {{
+                      "autosize": true,
+                      "symbol": "{setup['ticker']}",
+                      "interval": "D",
+                      "timezone": "America/New_York",
+                      "theme": "light",
+                      "style": "1",
+                      "locale": "en",
+                      "enable_publishing": false,
+                      "hide_top_toolbar": false,
+                      "hide_legend": false,
+                      "allow_symbol_change": false,
+                      "save_image": false,
+                      "calendar": false,
+                      "support_host": "https://www.tradingview.com"
+                      }}
+                      </script>
+                    </div>
+                    <!-- TradingView Widget END -->
+                    """
+                    st.components.v1.html(tradingview_html, height=420)
+                    
+                    st.markdown("---")
+                    
                     # Main content
                     col1, col2 = st.columns([2, 1])
                     
