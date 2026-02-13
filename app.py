@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 import requests
 from typing import List, Dict
 import time
-from zoneinfo import ZoneInfo
 import json
 
 # Page config
@@ -285,12 +284,12 @@ class SwingScreener:
             
             if "Bullish" in setup_type:
                 target = pivots['R2'] if current_price < pivots['R2'] else vrvp['VAH']
-                stop = current_price - (2 * atr)
+                stop = current_price - (1.5 * atr)  # Changed to 1.5x ATR
                 option_type = "CALL"
                 strike = round(current_price * 1.02)
             else:
                 target = pivots['S2'] if current_price > pivots['S2'] else vrvp['VAL']
-                stop = current_price + (2 * atr)
+                stop = current_price + (1.5 * atr)  # Changed to 1.5x ATR
                 option_type = "PUT"
                 strike = round(current_price * 0.98)
             
@@ -350,6 +349,9 @@ class SwingScreener:
 def main():
     st.markdown('<p class="main-header">📊 Swing Trade Screener</p>', unsafe_allow_html=True)
     st.markdown("**AI-powered confluence scanner with interactive checklists**")
+    
+    # Disclaimer
+    st.warning("⚠️ **This is not financial advice. This is only the display of my personal trading tools.**")
     
     # Sidebar
     st.sidebar.header("⚙️ Settings")
@@ -609,10 +611,18 @@ def main():
                     
                     with col1:
                         st.markdown(f"**Setup:** {setup['setup_type']}")
-                        st.markdown(f"**Entry:** {setup['option_type']} ${setup['strike']}, 45-60 DTE")
+                        st.markdown(f"**Entry:** {setup['option_type']} ${setup['strike']}, 45-120 DTE")
                         st.markdown(f"**Target:** ${setup['target']:.2f}")
                         st.markdown(f"**Stop:** ${setup['stop']:.2f}")
-                        st.markdown(f"**RSI:** {setup['rsi']:.1f} | **Volume:** {setup['volume_ratio']:.1f}x | **ATR:** ${setup['atr']:.2f}")
+                        # Determine RSI status and color
+                        if setup['rsi'] < 30:
+                            rsi_status = '<span style="color: green;">(Oversold)</span>'
+                        elif setup['rsi'] > 70:
+                            rsi_status = '<span style="color: red;">(Overbought)</span>'
+                        else:
+                            rsi_status = '<span style="color: black;">(Neutral)</span>'
+                        
+                        st.markdown(f"**RSI:** {setup['rsi']:.1f} {rsi_status} | **Volume:** {setup['volume_ratio']:.1f}x | **ATR:** ${setup['atr']:.2f}", unsafe_allow_html=True)
                     
                     with col2:
                         st.markdown("**Confluence Checklist:**")
