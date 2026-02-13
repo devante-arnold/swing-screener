@@ -16,11 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize session state for open positions
-if 'open_positions' not in st.session_state:
-    # Try to load from localStorage via query params or default to empty
-    st.session_state.open_positions = []
-
+# Initialize session state for exit checklist
 if 'exit_checklist' not in st.session_state:
     st.session_state.exit_checklist = {
         'r1_hit': False,
@@ -58,28 +54,6 @@ st.markdown("""
         padding: 1rem;
         border-radius: 0.5rem;
         margin: 1rem 0;
-    }
-    .tooltip {
-        position: relative;
-        display: inline-block;
-        cursor: help;
-    }
-    .add-position-btn {
-        background-color: #00c853;
-        color: white;
-        padding: 0.5rem;
-        border-radius: 0.25rem;
-        text-align: center;
-        cursor: pointer;
-        margin-top: 0.5rem;
-    }
-    .remove-position-btn {
-        background-color: #ff1744;
-        color: white;
-        padding: 0.25rem 0.5rem;
-        border-radius: 0.25rem;
-        cursor: pointer;
-        font-size: 0.9rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -365,25 +339,6 @@ class SwingScreener:
         return results
 
 
-def add_to_open_positions(setup):
-    """Add a setup to open positions (max 5)"""
-    if len(st.session_state.open_positions) >= 5:
-        st.warning("⚠️ Maximum 5 open positions reached. Remove a position before adding new ones.")
-        return False
-    
-    # Add to open positions
-    st.session_state.open_positions.append(setup)
-    st.success(f"✅ Added {setup['ticker']} to Open Positions!")
-    return True
-
-
-def remove_from_open_positions(index):
-    """Remove a position from open positions"""
-    if 0 <= index < len(st.session_state.open_positions):
-        removed = st.session_state.open_positions.pop(index)
-        st.success(f"✅ Removed {removed['ticker']} from Open Positions")
-
-
 def main():
     st.markdown('<p class="main-header">📊 Swing Trade Screener</p>', unsafe_allow_html=True)
     st.markdown("**AI-powered confluence scanner with interactive checklists**")
@@ -418,24 +373,6 @@ def main():
         type="password",
         help="Get webhook from api.slack.com/apps"
     )
-    
-    # Open Positions Section in Sidebar
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("📂 Open Positions")
-    
-    if len(st.session_state.open_positions) == 0:
-        st.sidebar.info("No open positions. Add setups from scan results.")
-    else:
-        for idx, pos in enumerate(st.session_state.open_positions):
-            with st.sidebar.expander(f"{'🟢' if 'Bullish' in pos['setup_type'] else '🔴'} {pos['ticker']} (Score: {pos['score']}/7)"):
-                st.markdown(f"**Setup:** {pos['setup_type']}")
-                st.markdown(f"**Entry:** {pos['option_type']} ${pos['strike']}")
-                st.markdown(f"**Target:** ${pos['target']:.2f}")
-                st.markdown(f"**Stop:** ${pos['stop']:.2f}")
-                
-                if st.button(f"❌ Remove {pos['ticker']}", key=f"remove_{idx}"):
-                    remove_from_open_positions(idx)
-                    st.rerun()
     
     # Exit Reminders Checklist in Sidebar
     st.sidebar.markdown("---")
@@ -596,11 +533,6 @@ def main():
                         st.checkbox("Previous Week H/L", value=cb['prev_week'], disabled=True, key=f"{position_key}_prev")
                         st.checkbox("RSI Confirmation", value=cb['rsi'], disabled=True, key=f"{position_key}_rsi")
                         st.checkbox("Price Distance from 20 EMA", value=cb['price_distance'], disabled=True, key=f"{position_key}_dist")
-                    
-                    # Add button at bottom
-                    if st.button(f"➕ Add to Open Positions", key=f"add_{position_key}", type="primary"):
-                        add_to_open_positions(setup)
-                        st.rerun()
             
             # Download CSV
             df = pd.DataFrame(filtered_results)
