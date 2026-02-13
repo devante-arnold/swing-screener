@@ -558,14 +558,15 @@ def main():
                     f"(Score: {setup['score']}/7)",
                     expanded=(i <= 10)
                 ):
-                    # TradingView Chart
+                    # TradingView Chart (bigger, full width)
                     tradingview_html = f"""
                     <!-- TradingView Widget BEGIN -->
-                    <div class="tradingview-widget-container" style="height:400px;">
-                      <div class="tradingview-widget-container__widget"></div>
+                    <div class="tradingview-widget-container" style="height:600px; width:100%;">
+                      <div class="tradingview-widget-container__widget" style="height:100%; width:100%;"></div>
                       <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
                       {{
-                      "autosize": true,
+                      "width": "100%",
+                      "height": "600",
                       "symbol": "{setup['ticker']}",
                       "interval": "D",
                       "timezone": "America/New_York",
@@ -578,17 +579,16 @@ def main():
                       "allow_symbol_change": false,
                       "save_image": false,
                       "calendar": false,
+                      "hide_volume": false,
                       "support_host": "https://www.tradingview.com"
                       }}
                       </script>
                     </div>
                     <!-- TradingView Widget END -->
                     """
-                    st.components.v1.html(tradingview_html, height=420)
+                    st.components.v1.html(tradingview_html, height=620)
                     
-                    st.markdown("---")
-                    
-                    # Main content
+                    # Main content (remove the separator, put content right below chart)
                     col1, col2 = st.columns([2, 1])
                     
                     with col1:
