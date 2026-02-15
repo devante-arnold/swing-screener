@@ -397,6 +397,24 @@ def main():
     # Disclaimer
     st.warning("⚠️ **This is not financial advice. This is only the display of my personal trading tools.**")
     
+    # Market status notice (using Eastern Time)
+    from datetime import timezone, timedelta
+    eastern = timezone(timedelta(hours=-5))
+    current_eastern = datetime.now(eastern)
+    current_day = current_eastern.weekday()
+    current_hour = current_eastern.hour
+    
+    is_weekend = current_day >= 5
+    is_before_open = current_hour < 9 or (current_hour == 9 and current_eastern.minute < 30)
+    is_after_close = current_hour >= 16
+    
+    if is_weekend:
+        st.info("🗓️ **Weekend Mode:** Markets are closed. Scanning is disabled. Showing cached results from the last scan.")
+    elif is_before_open:
+        st.info(f"⏰ **Pre-Market:** Markets open at 9:30 AM ET. Currently {current_eastern.strftime('%I:%M %p')} ET. Showing cached results.")
+    elif is_after_close:
+        st.info("🌙 **After Hours:** Markets closed at 4:00 PM ET. Showing cached results. Scan available tomorrow at 9:30 AM ET.")
+    
     # Sidebar
     st.sidebar.header("⚙️ Settings")
     
@@ -456,8 +474,33 @@ def main():
     # Main area - Scan button
     col1, col2, col3 = st.columns([2, 2, 1])
     
+    # Check if it's weekend IN EASTERN TIME (NYSE time zone)
+    from datetime import timezone, timedelta
+    eastern = timezone(timedelta(hours=-5))  # EST (or -4 for EDT, but simplified)
+    current_eastern = datetime.now(eastern)
+    current_day = current_eastern.weekday()  # 0=Monday, 6=Sunday
+    current_hour = current_eastern.hour
+    
+    # Weekend = Saturday (5) or Sunday (6)
+    # Also disable before 9:30 AM ET and after 4:00 PM ET on weekdays
+    is_weekend = current_day >= 5
+    is_before_open = current_hour < 9 or (current_hour == 9 and current_eastern.minute < 30)
+    is_after_close = current_hour >= 16
+    
+    # Markets are closed on weekends OR outside trading hours
+    markets_closed = is_weekend or is_before_open or is_after_close
+    
     with col1:
-        scan_button = st.button("🚀 Run Market Scan", type="primary", use_container_width=True)
+        if markets_closed:
+            st.button("🚀 Run Market Scan", type="primary", use_container_width=True, disabled=True)
+            if is_weekend:
+                st.caption("⏸️ Markets closed (Weekend). Scan disabled until Monday 9:30 AM ET.")
+            elif is_before_open:
+                st.caption(f"⏸️ Markets closed. Opens at 9:30 AM ET (currently {current_eastern.strftime('%I:%M %p')} ET).")
+            else:
+                st.caption("⏸️ Markets closed. Scan available tomorrow at 9:30 AM ET.")
+        else:
+            scan_button = st.button("🚀 Run Market Scan", type="primary", use_container_width=True)
     
     with col2:
         if st.session_state.scan_timestamp:
@@ -474,12 +517,16 @@ def main():
                         minute: '2-digit',
                         hour12: true
                     }});
-                    document.getElementById('local-time').textContent = localTime;
+                    const localDate = utcDate.toLocaleDateString('en-US', {{
+                        month: 'short',
+                        day: 'numeric'
+                    }});
+                    document.getElementById('local-time').textContent = localDate + ' ' + localTime;
                 </script>
             """, height=30)
     
-    # Run scan or display cached results
-    if scan_button:
+    # Run scan (only if markets open and button clicked)
+    if not markets_closed and 'scan_button' in locals() and scan_button:
         screener = SwingScreener(
             min_market_cap=min_market_cap,
             min_volume=min_volume,
