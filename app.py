@@ -33,6 +33,50 @@ if 'scan_results' not in st.session_state:
     st.session_state.market_regime = None
     st.session_state.vix_level = None
 
+# Try to load cached results from file
+import os
+import pickle
+from pathlib import Path
+
+CACHE_FILE = Path("/tmp/swing_scanner_cache.pkl")
+
+def load_cached_results():
+    """Load cached scan results from file"""
+    if CACHE_FILE.exists():
+        try:
+            with open(CACHE_FILE, 'rb') as f:
+                cached_data = pickle.load(f)
+                # Check if cache is less than 7 days old
+                cache_age = (datetime.utcnow() - cached_data['timestamp']).days
+                if cache_age < 7:
+                    return cached_data
+        except:
+            pass
+    return None
+
+def save_cached_results(results, timestamp, regime, vix):
+    """Save scan results to file"""
+    try:
+        cache_data = {
+            'results': results,
+            'timestamp': timestamp,
+            'regime': regime,
+            'vix': vix
+        }
+        with open(CACHE_FILE, 'wb') as f:
+            pickle.dump(cache_data, f)
+    except:
+        pass
+
+# Load cached results on startup if available
+if st.session_state.scan_results is None:
+    cached = load_cached_results()
+    if cached:
+        st.session_state.scan_results = cached['results']
+        st.session_state.scan_timestamp = cached['timestamp']
+        st.session_state.market_regime = cached['regime']
+        st.session_state.vix_level = cached['vix']
+
 # Custom CSS
 st.markdown("""
 <style>
@@ -476,6 +520,9 @@ def main():
         st.session_state.scan_timestamp = datetime.utcnow()  # Store in UTC
         st.session_state.market_regime = market_bullish
         st.session_state.vix_level = current_vix
+        
+        # Save to persistent file cache
+        save_cached_results(results, datetime.utcnow(), market_bullish, current_vix)
     
     # Display results (from cache or fresh scan)
     if st.session_state.scan_results is not None:
