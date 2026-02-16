@@ -2,11 +2,12 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import requests
 from typing import List, Dict
 import time
-import json
+import pickle
+from pathlib import Path
 
 # Page config
 st.set_page_config(
@@ -16,37 +17,61 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize session state for exit checklist
-if 'exit_checklist' not in st.session_state:
-    st.session_state.exit_checklist = {
-        'r1_hit': False,
-        'profit_100': False,
-        'stop_hit': False,
-        'otm_10': False,
-        'loss_50': False
-    }
+# File paths for persistence
+CACHE_FILE = Path("/tmp/swing_scanner_cache.pkl")
+POSITIONS_FILE = Path("/tmp/active_positions.pkl")
 
-# Initialize scan results cache
+# Initialize session state
 if 'scan_results' not in st.session_state:
     st.session_state.scan_results = None
     st.session_state.scan_timestamp = None
     st.session_state.market_regime = None
     st.session_state.vix_level = None
 
-# Try to load cached results from file
-import os
-import pickle
-from pathlib import Path
+if 'active_positions' not in st.session_state:
+    st.session_state.active_positions = []
 
-CACHE_FILE = Path("/tmp/swing_scanner_cache.pkl")
+if 'show_add_position_dialog' not in st.session_state:
+    st.session_state.show_add_position_dialog = False
+    st.session_state.position_to_add = None
 
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: bold;
+        color: #1f77b4;
+        margin-bottom: 1rem;
+    }
+    .bullish { color: #00c853; font-weight: bold; }
+    .bearish { color: #ff1744; font-weight: bold; }
+    .neutral { color: #000000; font-weight: bold; }
+    .entry-reminders {
+        background-color: #FFFACD;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+    }
+    .position-card {
+        background-color: #f8f9fa;
+        border-left: 4px solid #1f77b4;
+        padding: 0.75rem;
+        margin: 0.5rem 0;
+        border-radius: 0.25rem;
+    }
+    .checkpoint-safe { color: #00c853; }
+    .checkpoint-warning { color: #ff9800; }
+    .checkpoint-danger { color: #ff1744; }
+</style>
+""", unsafe_allow_html=True)
+
+# Persistence functions
 def load_cached_results():
-    """Load cached scan results from file"""
     if CACHE_FILE.exists():
         try:
             with open(CACHE_FILE, 'rb') as f:
                 cached_data = pickle.load(f)
-                # Check if cache is less than 7 days old
                 cache_age = (datetime.utcnow() - cached_data['timestamp']).days
                 if cache_age < 7:
                     return cached_data
@@ -55,7 +80,6 @@ def load_cached_results():
     return None
 
 def save_cached_results(results, timestamp, regime, vix):
-    """Save scan results to file"""
     try:
         cache_data = {
             'results': results,
@@ -68,7 +92,27 @@ def save_cached_results(results, timestamp, regime, vix):
     except:
         pass
 
-# Load cached results on startup if available
+def load_positions():
+    if POSITIONS_FILE.exists():
+        try:
+            with open(POSITIONS_FILE, 'rb') as f:
+                return pickle.load(f)
+        except:
+            pass
+    return []
+
+def save_positions(positions):
+    try:
+        with open(POSITIONS_FILE, 'wb') as f:
+            pickle.dump(positions, f)
+    except:
+        pass
+
+# Load positions on startup
+if not st.session_state.active_positions:
+    st.session_state.active_positions = load_positions()
+
+# Load cached scan results on startup
 if st.session_state.scan_results is None:
     cached = load_cached_results()
     if cached:
@@ -77,39 +121,6 @@ if st.session_state.scan_results is None:
         st.session_state.market_regime = cached['regime']
         st.session_state.vix_level = cached['vix']
 
-# Custom CSS
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #1f77b4;
-        margin-bottom: 1rem;
-    }
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 0.5rem 0;
-    }
-    .bullish {
-        color: #00c853;
-        font-weight: bold;
-    }
-    .bearish {
-        color: #ff1744;
-        font-weight: bold;
-    }
-    .entry-reminders {
-        background-color: #FFFACD;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# [Previous SwingScreener class code remains the same]
 class SwingScreener:
     def __init__(self, min_market_cap=2e9, min_volume=500000, confluence_threshold=4):
         self.min_market_cap = min_market_cap
@@ -238,10 +249,7 @@ class SwingScreener:
             prev_week_low = prev_week['Low']
             atr = self.calculate_atr(data)
             
-            avg_volume_20 = data['Volume'].tail(20).mean()
-            current_volume = data['Volume'].iloc[-1]
-            volume_ratio = current_volume / avg_volume_20 if avg_volume_20 > 0 else 0
-            
+            # RSI calculation
             delta = data['Close'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -249,73 +257,145 @@ class SwingScreener:
             rsi = 100 - (100 / (1 + rs))
             current_rsi = rsi.iloc[-1] if not pd.isna(rsi.iloc[-1]) else 50
             
+            # RSI momentum (last 3 periods)
+            rsi_prev = rsi.iloc[-4:-1].mean() if len(rsi) >= 4 else current_rsi
+            if current_rsi > rsi_prev + 2:
+                rsi_momentum = "Rising"
+                rsi_color = "bullish"
+            elif current_rsi < rsi_prev - 2:
+                rsi_momentum = "Falling"
+                rsi_color = "bearish"
+            else:
+                rsi_momentum = "Flat"
+                rsi_color = "neutral"
+            
+            # Check for extreme RSI
+            if current_rsi < 30:
+                rsi_status = "**Extremely Oversold**"
+                rsi_color = "bullish"
+            elif current_rsi > 70:
+                rsi_status = "**Extremely Overbought**"
+                rsi_color = "bearish"
+            else:
+                rsi_status = rsi_momentum
+            
+            price_distance = abs(current_price - ema_20) / ema_20
+            
             score = 0
             factors = []
             confluence_breakdown = {
-                'pivot': False,
-                'vrvp': False,
-                'ema_sma': False,
-                'vpa': False,
-                'prev_week': False,
-                'rsi': False,
-                'price_distance': False
+                'pivot': {'hit': False, 'level': '', 'price': 0, 'color': ''},
+                'vrvp': {'hit': False, 'level': '', 'price': 0},
+                'ema_sma': {'hit': False, 'direction': '', 'color': ''},
+                'prev_week': {'hit': False, 'level': '', 'distance': 0},
+                'rsi': {'hit': False, 'value': current_rsi, 'status': rsi_status, 'color': rsi_color},
+                'price_distance': {'hit': False, 'distance': price_distance}
             }
             
             # 1. Near pivot
+            closest_pivot = None
+            min_distance = float('inf')
             for level_name, level_price in pivots.items():
-                if abs(current_price - level_price) / current_price < 0.02:
-                    score += 1
-                    factors.append(f"Near {level_name}")
-                    confluence_breakdown['pivot'] = True
-                    break
+                distance = abs(current_price - level_price) / current_price
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_pivot = (level_name, level_price)
+            
+            if closest_pivot and min_distance < 0.02:
+                score += 1
+                level_name, level_price = closest_pivot
+                
+                # Determine color
+                if level_name in ['R1', 'R2']:
+                    pivot_color = 'bearish'  # Resistance
+                elif level_name in ['S1', 'S2']:
+                    pivot_color = 'bullish'  # Support
+                else:
+                    pivot_color = 'neutral'  # PP
+                
+                factors.append(f"Near {level_name}")
+                confluence_breakdown['pivot'] = {
+                    'hit': True,
+                    'level': level_name,
+                    'price': level_price,
+                    'color': pivot_color
+                }
             
             # 2. Near VRVP
+            closest_vrvp = None
+            min_vrvp_distance = float('inf')
             for vrvp_name, vrvp_price in vrvp.items():
-                if vrvp_price > 0 and abs(current_price - vrvp_price) / current_price < 0.02:
-                    score += 1
-                    factors.append(f"VRVP {vrvp_name}")
-                    confluence_breakdown['vrvp'] = True
-                    break
+                if vrvp_price > 0:
+                    distance = abs(current_price - vrvp_price) / current_price
+                    if distance < min_vrvp_distance:
+                        min_vrvp_distance = distance
+                        closest_vrvp = (vrvp_name, vrvp_price)
+            
+            if closest_vrvp and min_vrvp_distance < 0.02:
+                score += 1
+                vrvp_name, vrvp_price = closest_vrvp
+                factors.append(f"VRVP {vrvp_name}")
+                confluence_breakdown['vrvp'] = {
+                    'hit': True,
+                    'level': vrvp_name,
+                    'price': vrvp_price
+                }
             
             # 3. EMA/SMA alignment
             if current_price > ema_20 > ema_50:
                 score += 1
                 factors.append("Bullish EMA/SMA")
-                confluence_breakdown['ema_sma'] = True
+                confluence_breakdown['ema_sma'] = {
+                    'hit': True,
+                    'direction': 'Bullish',
+                    'color': 'bullish'
+                }
             elif current_price < ema_20 < ema_50:
                 score += 1
                 factors.append("Bearish EMA/SMA")
-                confluence_breakdown['ema_sma'] = True
+                confluence_breakdown['ema_sma'] = {
+                    'hit': True,
+                    'direction': 'Bearish',
+                    'color': 'bearish'
+                }
             
-            # 4. VPA confluence (Volume spike)
-            if volume_ratio > 1.5:
-                score += 1
-                factors.append(f"VPA {volume_ratio:.1f}x")
-                confluence_breakdown['vpa'] = True
+            # 4. Previous week H/L
+            dist_to_high = abs(current_price - prev_week_high) / current_price
+            dist_to_low = abs(current_price - prev_week_low) / current_price
             
-            # 5. Previous week H/L
-            if abs(current_price - prev_week_high) / current_price < 0.03:
+            if dist_to_high < 0.03:
                 score += 1
                 factors.append("Prev week high")
-                confluence_breakdown['prev_week'] = True
-            elif abs(current_price - prev_week_low) / current_price < 0.03:
+                confluence_breakdown['prev_week'] = {
+                    'hit': True,
+                    'level': 'High',
+                    'distance': dist_to_high * 100
+                }
+            elif dist_to_low < 0.03:
                 score += 1
                 factors.append("Prev week low")
-                confluence_breakdown['prev_week'] = True
+                confluence_breakdown['prev_week'] = {
+                    'hit': True,
+                    'level': 'Low',
+                    'distance': dist_to_low * 100
+                }
             
-            # 6. RSI
+            # 5. RSI confirmation (30-70 neutral zone)
             if 30 < current_rsi < 70:
                 score += 1
                 factors.append(f"RSI {current_rsi:.0f}")
-                confluence_breakdown['rsi'] = True
+                confluence_breakdown['rsi']['hit'] = True
             
-            # 7. Price distance from 20 EMA
-            price_distance = abs(current_price - ema_20) / ema_20
+            # 6. Price distance from 20 EMA
             if price_distance < 0.03:
                 score += 1
                 factors.append("Near 20 EMA")
-                confluence_breakdown['price_distance'] = True
+                confluence_breakdown['price_distance'] = {
+                    'hit': True,
+                    'distance': price_distance * 100
+                }
             
+            # Determine setup type
             setup_type = "Range-bound"
             if current_price > pivots['R1'] and current_price > ema_20:
                 setup_type = "Bullish breakout"
@@ -326,16 +406,33 @@ class SwingScreener:
             elif current_price < ema_20 and abs(current_price - vrvp['VAH']) / current_price < 0.02:
                 setup_type = "Bearish reversal"
             
+            # Calculate targets and stops
             if "Bullish" in setup_type:
-                target = pivots['R2'] if current_price < pivots['R2'] else vrvp['VAH']
-                stop = current_price - (1.5 * atr)  # Changed to 1.5x ATR
+                target_r1 = pivots['R1'] if current_price < pivots['R1'] else pivots['R2']
+                target_r2 = pivots['R2']
+                stop = current_price - (1.5 * atr)
                 option_type = "CALL"
-                strike = round(current_price * 1.02)
+                
+                # Strike selection based on score
+                if score == 6:
+                    strike = round(current_price)  # ATM
+                elif score == 5:
+                    strike = round(current_price * 1.01)  # 1% OTM
+                else:
+                    strike = round(current_price * 1.02)  # 2% OTM
             else:
-                target = pivots['S2'] if current_price > pivots['S2'] else vrvp['VAL']
-                stop = current_price + (1.5 * atr)  # Changed to 1.5x ATR
+                target_r1 = pivots['S1'] if current_price > pivots['S1'] else pivots['S2']
+                target_r2 = pivots['S2']
+                stop = current_price + (1.5 * atr)
                 option_type = "PUT"
-                strike = round(current_price * 0.98)
+                
+                # Strike selection based on score
+                if score == 6:
+                    strike = round(current_price)  # ATM
+                elif score == 5:
+                    strike = round(current_price * 0.99)  # 1% OTM
+                else:
+                    strike = round(current_price * 0.98)  # 2% OTM
             
             if score < self.confluence_threshold:
                 return None
@@ -348,12 +445,16 @@ class SwingScreener:
                 'factors': factors,
                 'option_type': option_type,
                 'strike': strike,
-                'target': target,
+                'target_r1': target_r1,
+                'target_r2': target_r2,
                 'stop': stop,
                 'atr': atr,
                 'rsi': current_rsi,
-                'volume_ratio': volume_ratio,
-                'confluence_breakdown': confluence_breakdown
+                'rsi_status': rsi_status,
+                'rsi_color': rsi_color,
+                'confluence_breakdown': confluence_breakdown,
+                'ema_20': ema_20,
+                'ema_50': ema_50
             }
         except:
             return None
@@ -390,15 +491,196 @@ class SwingScreener:
         return results
 
 
+def calculate_time_checkpoints(dte_at_entry, setup_type):
+    """Calculate time-based exit checkpoints"""
+    if "breakout" in setup_type.lower() or "breakdown" in setup_type.lower():
+        quick_exit = 10
+        max_hold = 15
+    else:  # Reversal
+        quick_exit = 10
+        max_hold = 14
+    
+    theta_warning = 25
+    
+    return {
+        'quick_exit': quick_exit,
+        'max_hold': max_hold,
+        'theta_warning': theta_warning
+    }
+
+
+def get_current_stock_price(ticker):
+    """Fetch current stock price"""
+    try:
+        stock = yf.Ticker(ticker)
+        data = stock.history(period='1d')
+        if not data.empty:
+            return data['Close'].iloc[-1]
+    except:
+        pass
+    return None
+
+
+def render_position_card(pos, index):
+    """Render compact position card in sidebar"""
+    days_held = (datetime.now() - datetime.fromisoformat(pos['entry_date'])).days
+    dte_remaining = pos['dte_at_entry'] - days_held
+    
+    # Fetch current price
+    current_price = get_current_stock_price(pos['ticker'])
+    if current_price:
+        if pos['option_type'] == 'CALL':
+            moneyness_pct = ((pos['strike'] - current_price) / pos['strike']) * 100
+        else:
+            moneyness_pct = ((current_price - pos['strike']) / pos['strike']) * 100
+        
+        moneyness_text = f"{abs(moneyness_pct):.1f}% {'OTM' if moneyness_pct > 0 else 'ITM'}"
+    else:
+        current_price = pos['entry_price']
+        moneyness_text = "N/A"
+    
+    # Determine status emoji
+    checkpoints = calculate_time_checkpoints(pos['dte_at_entry'], pos['setup_type'])
+    if days_held >= checkpoints['max_hold']:
+        status_emoji = "🔴"
+    elif days_held >= checkpoints['quick_exit']:
+        status_emoji = "⚠️"
+    else:
+        status_emoji = "🟢"
+    
+    emoji = "🟢" if "Bullish" in pos['setup_type'] else "🔴"
+    
+    with st.expander(f"{emoji} {pos['ticker']} ${pos['strike']}{pos['option_type'][0]} - Day {days_held}"):
+        st.markdown(f"**Entry:** {pos['entry_date'][:10]} | **DTE:** {dte_remaining}d")
+        st.markdown(f"**Current:** ${current_price:.2f} | **Moneyness:** {moneyness_text}")
+        st.markdown(f"**Status:** {status_emoji} {'Max hold!' if days_held >= checkpoints['max_hold'] else 'On track' if days_held < checkpoints['quick_exit'] else 'Decision point'}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📊 Details", key=f"details_{index}"):
+                st.session_state[f'show_details_{index}'] = True
+                st.rerun()
+        with col2:
+            if st.button("❌ Exit", key=f"exit_{index}"):
+                st.session_state.active_positions.pop(index)
+                save_positions(st.session_state.active_positions)
+                st.success(f"Removed {pos['ticker']} from positions")
+                st.rerun()
+
+
+def render_position_details(pos, index):
+    """Render detailed position view"""
+    st.markdown(f"## {pos['ticker']} ${pos['strike']} {pos['option_type']} - Detailed View")
+    
+    days_held = (datetime.now() - datetime.fromisoformat(pos['entry_date'])).days
+    dte_remaining = pos['dte_at_entry'] - days_held
+    checkpoints = calculate_time_checkpoints(pos['dte_at_entry'], pos['setup_type'])
+    
+    # Fetch current price
+    current_price = get_current_stock_price(pos['ticker'])
+    if not current_price:
+        current_price = pos['entry_price']
+    
+    # Calculate moneyness
+    if pos['option_type'] == 'CALL':
+        moneyness_pct = ((pos['strike'] - current_price) / pos['strike']) * 100
+    else:
+        moneyness_pct = ((current_price - pos['strike']) / pos['strike']) * 100
+    
+    # Position info
+    st.markdown("### Position Information")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Entry Date", pos['entry_date'][:10])
+        st.metric("Entry Price", f"${pos['entry_price']:.2f}")
+        st.metric("Strike", f"${pos['strike']}")
+    with col2:
+        st.metric("Contracts", pos['contracts'])
+        st.metric("DTE at Entry", f"{pos['dte_at_entry']}d")
+        st.metric("DTE Remaining", f"{dte_remaining}d")
+    with col3:
+        st.metric("Days Held", f"{days_held}d")
+        st.metric("Current Price", f"${current_price:.2f}")
+        st.metric("Moneyness", f"{abs(moneyness_pct):.1f}% {'OTM' if moneyness_pct > 0 else 'ITM'}")
+    
+    # Time exit strategy
+    st.markdown("### ⏰ Time Exit Strategy")
+    st.markdown(f"**Setup Type:** {pos['setup_type']}")
+    st.markdown(f"**Based on {pos['dte_at_entry']} DTE entry:**")
+    
+    if days_held < checkpoints['quick_exit']:
+        st.markdown(f"<p class='checkpoint-safe'>✅ Day {days_held} (Today) - Safe zone</p>", unsafe_allow_html=True)
+        st.markdown(f"<p class='checkpoint-warning'>⚠️ Day {checkpoints['quick_exit']} - Decision point (approaching)</p>", unsafe_allow_html=True)
+    elif days_held < checkpoints['max_hold']:
+        st.markdown(f"<p class='checkpoint-warning'>⚠️ Day {days_held} (Today) - Decision zone</p>", unsafe_allow_html=True)
+        st.markdown(f"<p class='checkpoint-danger'>🔴 Day {checkpoints['max_hold']} - Maximum hold (approaching)</p>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<p class='checkpoint-danger'>🔴 Day {days_held} (Today) - PAST MAX HOLD - EXIT NOW</p>", unsafe_allow_html=True)
+    
+    st.markdown(f"<p class='checkpoint-danger'>💀 Day {checkpoints['theta_warning']} - Theta death zone (never hold this long)</p>", unsafe_allow_html=True)
+    
+    # Targets and stops
+    st.markdown("### 📊 Targets & Stops")
+    col1, col2 = st.columns(2)
+    with col1:
+        dist_to_r1 = ((pos['target_r1'] - current_price) / current_price) * 100
+        dist_to_r2 = ((pos['target_r2'] - current_price) / current_price) * 100
+        st.markdown(f"**Target R1:** ${pos['target_r1']:.2f} ({dist_to_r1:+.1f}% away)")
+        st.markdown(f"**Target R2:** ${pos['target_r2']:.2f} ({dist_to_r2:+.1f}% away)")
+    with col2:
+        dist_to_stop = ((pos['stop'] - current_price) / current_price) * 100
+        st.markdown(f"**Stop Loss:** ${pos['stop']:.2f} ({dist_to_stop:+.1f}% away)")
+    
+    # Scaling plan
+    st.markdown("### 📈 Scaling Exit Plan")
+    st.markdown(f"""
+    **If R1 (${pos['target_r1']:.2f}) hit:**
+    - → Sell 75% ({pos['contracts'] * 0.75:.1f} contracts)
+    - → Let 25% run to R2
+    
+    **If R2 (${pos['target_r2']:.2f}) hit:**
+    - → Sell remaining 25%
+    - → Trade complete ✅
+    
+    **If Stop (${pos['stop']:.2f}) hit:**
+    - → Exit 100%
+    - → Move on to next setup
+    """)
+    
+    # Exit checklist
+    st.markdown("### 🚨 Exit Checklist")
+    st.checkbox("R1 hit → Exit 75% of position", key=f"r1_{index}")
+    st.checkbox("P/L: Up 100% → Consider profit take", key=f"profit_{index}")
+    st.checkbox("Stop hit (1.5x ATR) → Exit 100%", key=f"stop_{index}")
+    st.checkbox(f"Moneyness: >10% OTM at day 14 → Exit 100% (Currently {abs(moneyness_pct):.1f}% OTM)", key=f"otm_{index}")
+    st.checkbox("P/L: Down 50% → Exit 100%", key=f"loss_{index}")
+    
+    # Adjustment rules
+    st.markdown("### 🔧 Adjustment Rules")
+    st.markdown("""
+    **⚠️ Stock moved but option didn't:**
+    - If stock up 2%+ but option still down → Exit (IV crush/theta)
+    
+    **✅ Early profit (before targets):**
+    - If up 50%+ before day 7 → Take it (don't be greedy)
+    
+    **🔄 Stopped on gap but setup valid:**
+    - If gapped through stop but setup intact → Can re-enter when stabilizes
+    """)
+    
+    if st.button("⬅️ Back to Positions", key=f"back_{index}"):
+        st.session_state[f'show_details_{index}'] = False
+        st.rerun()
+
+
 def main():
     st.markdown('<p class="main-header">📊 Swing Trade Screener</p>', unsafe_allow_html=True)
-    st.markdown("**AI-powered confluence scanner with interactive checklists**")
+    st.markdown("**AI-powered confluence scanner with position tracker**")
     
     # Disclaimer
     st.warning("⚠️ **This is not financial advice. This is only the display of my personal trading tools.**")
     
     # Market status notice (using Eastern Time)
-    from datetime import timezone, timedelta
     eastern = timezone(timedelta(hours=-5))
     current_eastern = datetime.now(eastern)
     current_day = current_eastern.weekday()
@@ -421,9 +703,9 @@ def main():
     confluence_threshold = st.sidebar.slider(
         "Minimum Confluence Score",
         min_value=3,
-        max_value=7,
+        max_value=6,
         value=4,
-        help="Minimum number of confluence factors required"
+        help="Minimum number of confluence factors required (now 6 total)"
     )
     
     min_market_cap = st.sidebar.selectbox(
@@ -440,54 +722,31 @@ def main():
         format_func=lambda x: f"{x/1000:.0f}K shares"
     )
     
-    slack_webhook = st.sidebar.text_input(
-        "Slack Webhook URL (optional)",
-        type="password",
-        help="Get webhook from api.slack.com/apps"
-    )
-    
-    # Exit Reminders Checklist in Sidebar
+    # Active Positions Section
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🚨 Exit Reminders")
+    st.sidebar.subheader(f"📂 Active Positions ({len(st.session_state.active_positions)}/5)")
     
-    st.session_state.exit_checklist['r1_hit'] = st.sidebar.checkbox(
-        "R1 hit → begin to scale out",
-        value=st.session_state.exit_checklist['r1_hit']
-    )
-    st.session_state.exit_checklist['profit_100'] = st.sidebar.checkbox(
-        "P/L: Up 100% → Consider profit take",
-        value=st.session_state.exit_checklist['profit_100']
-    )
-    st.session_state.exit_checklist['stop_hit'] = st.sidebar.checkbox(
-        "Stop hit (1.5x ATR) → Exit 100%",
-        value=st.session_state.exit_checklist['stop_hit']
-    )
-    st.session_state.exit_checklist['otm_10'] = st.sidebar.checkbox(
-        "Moneyness: >10% OTM at day 14 → Exit 100%",
-        value=st.session_state.exit_checklist['otm_10']
-    )
-    st.session_state.exit_checklist['loss_50'] = st.sidebar.checkbox(
-        "P/L: Down 50% → Exit 100%",
-        value=st.session_state.exit_checklist['loss_50']
-    )
+    # Check if showing details for any position
+    showing_details = None
+    for i in range(len(st.session_state.active_positions)):
+        if st.session_state.get(f'show_details_{i}', False):
+            showing_details = i
+            break
+    
+    if showing_details is not None:
+        # Show detailed view in main area
+        render_position_details(st.session_state.active_positions[showing_details], showing_details)
+        return  # Skip rest of main area
+    
+    if len(st.session_state.active_positions) == 0:
+        st.sidebar.info("No active positions. Add setups from scan results below.")
+    else:
+        for i, pos in enumerate(st.session_state.active_positions):
+            render_position_card(pos, i)
     
     # Main area - Scan button
     col1, col2, col3 = st.columns([2, 2, 1])
     
-    # Check if it's weekend IN EASTERN TIME (NYSE time zone)
-    from datetime import timezone, timedelta
-    eastern = timezone(timedelta(hours=-5))  # EST (or -4 for EDT, but simplified)
-    current_eastern = datetime.now(eastern)
-    current_day = current_eastern.weekday()  # 0=Monday, 6=Sunday
-    current_hour = current_eastern.hour
-    
-    # Weekend = Saturday (5) or Sunday (6)
-    # Also disable before 9:30 AM ET and after 4:00 PM ET on weekdays
-    is_weekend = current_day >= 5
-    is_before_open = current_hour < 9 or (current_hour == 9 and current_eastern.minute < 30)
-    is_after_close = current_hour >= 16
-    
-    # Markets are closed on weekends OR outside trading hours
     markets_closed = is_weekend or is_before_open or is_after_close
     
     with col1:
@@ -504,7 +763,6 @@ def main():
     
     with col2:
         if st.session_state.scan_timestamp:
-            # Convert UTC to user's local time using JavaScript
             utc_timestamp = st.session_state.scan_timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')
             st.components.v1.html(f"""
                 <div style="margin-top: 8px; font-size: 0.9em; color: #666;">
@@ -525,7 +783,7 @@ def main():
                 </script>
             """, height=30)
     
-    # Run scan (only if markets open and button clicked)
+    # Run scan
     if not markets_closed and 'scan_button' in locals() and scan_button:
         screener = SwingScreener(
             min_market_cap=min_market_cap,
@@ -562,16 +820,15 @@ def main():
             market_bullish = True
             current_vix = None
         
-        # Cache results with UTC timestamp
+        # Cache results
         st.session_state.scan_results = results
-        st.session_state.scan_timestamp = datetime.utcnow()  # Store in UTC
+        st.session_state.scan_timestamp = datetime.utcnow()
         st.session_state.market_regime = market_bullish
         st.session_state.vix_level = current_vix
         
-        # Save to persistent file cache
         save_cached_results(results, datetime.utcnow(), market_bullish, current_vix)
     
-    # Display results (from cache or fresh scan)
+    # Display results
     if st.session_state.scan_results is not None:
         results = st.session_state.scan_results
         market_bullish = st.session_state.market_regime
@@ -592,9 +849,9 @@ def main():
                 st.metric("Bearish", bearish)
             with col4:
                 avg_score = sum(r['score'] for r in results) / len(results)
-                st.metric("Avg Score", f"{avg_score:.1f}/7")
+                st.metric("Avg Score", f"{avg_score:.1f}/6")
             
-            # Market Regime & VIX Display
+            # Market Regime & VIX
             regime_color = "🟢" if market_bullish else "🔴"
             regime_text = "BULLISH" if market_bullish else "BEARISH"
             vix_text = f"{current_vix:.1f}" if current_vix else "N/A"
@@ -603,7 +860,7 @@ def main():
             
             st.markdown("---")
             
-            # VIX Guide Table (moved to top)
+            # VIX Guide
             st.subheader("📊 VIX Volatility Guide")
             vix_data = {
                 "VIX Level": ["10-15", "15-20", "20-25", "25-30", "30-40", "40+"],
@@ -612,9 +869,9 @@ def main():
                     "Calm market, normal position sizes",
                     "Typical market conditions",
                     "Start being cautious",
-                    "⚠️ Warning appears - reduce size 50%",
+                    "⚠️ Warning - reduce size 50%",
                     "Major uncertainty, consider sitting out",
-                    "Crisis mode (like COVID crash)"
+                    "Crisis mode"
                 ]
             }
             vix_df = pd.DataFrame(vix_data)
@@ -622,15 +879,14 @@ def main():
             
             st.markdown("---")
             
-            # Entry Reminders Section (Yellow Box)
+            # Entry Reminders
             st.markdown("""
             <div class="entry-reminders">
                 <h4>📋 Entry Reminders</h4>
                 <ul>
                     <li><b>Market regime aligned</b> <span title="Only take calls in bullish market (SPY > 50MA), puts in bearish market (SPY < 50MA)">ⓘ</span></li>
-                    <li><b>DTE: >45 days</b></li>
-                    <li><b>Strike: ATM - 2% OTM (max 3%)</b></li>
-                    <li><b>IV < 50%</b> (or spiking with your direction)</li>
+                    <li><b>DTE: 45-120 days</b></li>
+                    <li><b>Strike: ATM (6/6), 1% OTM (5/6), 2% OTM (4/6)</b></li>
                     <li><b>No earnings in next 7 days</b> (unless intentional)</li>
                 </ul>
             </div>
@@ -650,7 +906,7 @@ def main():
                 )
             
             with col2:
-                min_score_filter = st.slider("Minimum Score", 3, 7, 4)
+                min_score_filter = st.slider("Minimum Score", 3, 6, 4)
             
             filtered_results = [
                 r for r in results 
@@ -659,20 +915,18 @@ def main():
             
             st.info(f"Showing {len(filtered_results)} of {len(results)} setups")
             
-            # Results with confluence checklist
+            # Results - ALL TABS CLOSED by default
             for i, setup in enumerate(filtered_results[:50], 1):
-                # Create unique key for each position
                 position_key = f"{setup['ticker']}_{i}"
                 
                 with st.expander(
                     f"{'🟢' if 'Bullish' in setup['setup_type'] else '🔴'} "
                     f"**{i}. {setup['ticker']}** - ${setup['price']:.2f} "
-                    f"(Score: {setup['score']}/7)",
-                    expanded=(i <= 10)
+                    f"(Score: {setup['score']}/6)",
+                    expanded=False  # ALL CLOSED
                 ):
-                    # TradingView Chart (bigger, full width)
+                    # TradingView Chart
                     tradingview_html = f"""
-                    <!-- TradingView Widget BEGIN -->
                     <div class="tradingview-widget-container" style="height:600px; width:100%;">
                       <div class="tradingview-widget-container__widget" style="height:100%; width:100%;"></div>
                       <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
@@ -696,38 +950,125 @@ def main():
                       }}
                       </script>
                     </div>
-                    <!-- TradingView Widget END -->
                     """
                     st.components.v1.html(tradingview_html, height=620)
                     
-                    # Main content (remove the separator, put content right below chart)
+                    # Main content
                     col1, col2 = st.columns([2, 1])
                     
                     with col1:
                         st.markdown(f"**Setup:** {setup['setup_type']}")
-                        st.markdown(f"**Entry:** {setup['option_type']} ${setup['strike']}, 45-120 DTE")
-                        st.markdown(f"**Target:** ${setup['target']:.2f}")
-                        st.markdown(f"**Stop:** ${setup['stop']:.2f}")
-                        # Determine RSI status and color
-                        if setup['rsi'] < 30:
-                            rsi_status = '<span style="color: green;">(Oversold)</span>'
-                        elif setup['rsi'] > 70:
-                            rsi_status = '<span style="color: red;">(Overbought)</span>'
-                        else:
-                            rsi_status = '<span style="color: black;">(Neutral)</span>'
                         
-                        st.markdown(f"**RSI:** {setup['rsi']:.1f} {rsi_status} | **Volume:** {setup['volume_ratio']:.1f}x | **ATR:** ${setup['atr']:.2f}", unsafe_allow_html=True)
+                        # Strike display based on score
+                        if setup['score'] == 6:
+                            strike_text = f"${setup['strike']} ATM"
+                        elif setup['score'] == 5:
+                            strike_text = f"${setup['strike']} (1% OTM)"
+                        else:
+                            strike_text = f"${setup['strike']} (2% OTM)"
+                        
+                        st.markdown(f"**Entry:** {setup['option_type']} {strike_text}, 45-120 DTE")
+                        st.markdown(f"**Target R1:** ${setup['target_r1']:.2f} (75% exit)")
+                        st.markdown(f"**Target R2:** ${setup['target_r2']:.2f} (25% exit)")
+                        st.markdown(f"**Stop:** ${setup['stop']:.2f}")
+                        
+                        # RSI with color and bold
+                        rsi_class = setup['rsi_color']
+                        st.markdown(f"**RSI:** {setup['rsi']:.1f} <span class='{rsi_class}'>{setup['rsi_status']}</span> | **ATR:** ${setup['atr']:.2f}", unsafe_allow_html=True)
                     
                     with col2:
                         st.markdown("**Confluence Checklist:**")
                         cb = setup['confluence_breakdown']
-                        st.checkbox("Near Pivot Level", value=cb['pivot'], disabled=True, key=f"{position_key}_pivot")
-                        st.checkbox("Near VRVP Level", value=cb['vrvp'], disabled=True, key=f"{position_key}_vrvp")
-                        st.checkbox("EMA/SMA Alignment", value=cb['ema_sma'], disabled=True, key=f"{position_key}_ema")
-                        st.checkbox("VPA Confluence", value=cb['vpa'], disabled=True, key=f"{position_key}_vpa")
-                        st.checkbox("Previous Week H/L", value=cb['prev_week'], disabled=True, key=f"{position_key}_prev")
-                        st.checkbox("RSI Confirmation", value=cb['rsi'], disabled=True, key=f"{position_key}_rsi")
-                        st.checkbox("Price Distance from 20 EMA", value=cb['price_distance'], disabled=True, key=f"{position_key}_dist")
+                        
+                        # Near Pivot Level (with color)
+                        if cb['pivot']['hit']:
+                            pivot_class = cb['pivot']['color']
+                            st.markdown(f"☑ <span class='{pivot_class}'>Near Pivot: {cb['pivot']['level']} ${cb['pivot']['price']:.2f}</span>", unsafe_allow_html=True)
+                        else:
+                            st.markdown("☐ Near Pivot Level")
+                        
+                        # Near VRVP Level (with level name)
+                        if cb['vrvp']['hit']:
+                            st.markdown(f"☑ Near VRVP: {cb['vrvp']['level']} ${cb['vrvp']['price']:.2f}")
+                        else:
+                            st.markdown("☐ Near VRVP Level")
+                        
+                        # EMA/SMA Alignment (with color)
+                        if cb['ema_sma']['hit']:
+                            ema_class = cb['ema_sma']['color']
+                            st.markdown(f"☑ <span class='{ema_class}'>EMA/SMA: 20/50 ({cb['ema_sma']['direction']})</span>", unsafe_allow_html=True)
+                        else:
+                            st.markdown("☐ EMA/SMA Alignment")
+                        
+                        # Previous Week H/L (with distance)
+                        if cb['prev_week']['hit']:
+                            st.markdown(f"☑ Prev Week {cb['prev_week']['level']}: {cb['prev_week']['distance']:.1f}% away")
+                        else:
+                            st.markdown("☐ Previous Week H/L")
+                        
+                        # RSI Confirmation
+                        if cb['rsi']['hit']:
+                            st.markdown(f"☑ RSI Confirmation: {cb['rsi']['value']:.1f}")
+                        else:
+                            st.markdown("☐ RSI Confirmation")
+                        
+                        # Price Distance from 20 EMA
+                        if cb['price_distance']['hit']:
+                            st.markdown(f"☑ Price from 20 EMA: {cb['price_distance']['distance']:.1f}% away")
+                        else:
+                            st.markdown("☐ Price Distance from 20 EMA")
+                    
+                    # Add to Positions button
+                    st.markdown("---")
+                    if st.button(f"➕ Add to Positions", key=f"add_{position_key}", type="primary"):
+                        if len(st.session_state.active_positions) >= 5:
+                            st.error("⚠️ Maximum 5 positions reached. Remove a position before adding new ones.")
+                        else:
+                            st.session_state.position_to_add = setup
+                            st.session_state.show_add_position_dialog = True
+                            st.rerun()
+            
+            # Add Position Dialog
+            if st.session_state.show_add_position_dialog and st.session_state.position_to_add:
+                setup = st.session_state.position_to_add
+                
+                st.markdown("---")
+                st.subheader(f"➕ Add {setup['ticker']} to Active Positions")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    entry_date = st.date_input("Entry Date", value=datetime.now())
+                    dte_input = st.number_input("DTE at Entry", min_value=30, max_value=120, value=60, step=5)
+                with col2:
+                    contracts_input = st.number_input("Number of Contracts", min_value=1, max_value=10, value=1)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("Cancel"):
+                        st.session_state.show_add_position_dialog = False
+                        st.session_state.position_to_add = None
+                        st.rerun()
+                with col2:
+                    if st.button("Add Position", type="primary"):
+                        new_position = {
+                            'ticker': setup['ticker'],
+                            'strike': setup['strike'],
+                            'option_type': setup['option_type'],
+                            'entry_date': entry_date.isoformat(),
+                            'entry_price': setup['price'],
+                            'dte_at_entry': dte_input,
+                            'contracts': contracts_input,
+                            'setup_type': setup['setup_type'],
+                            'target_r1': setup['target_r1'],
+                            'target_r2': setup['target_r2'],
+                            'stop': setup['stop']
+                        }
+                        st.session_state.active_positions.append(new_position)
+                        save_positions(st.session_state.active_positions)
+                        st.session_state.show_add_position_dialog = False
+                        st.session_state.position_to_add = None
+                        st.success(f"✅ Added {setup['ticker']} to Active Positions!")
+                        st.rerun()
             
             # Download CSV
             df = pd.DataFrame(filtered_results)
@@ -744,23 +1085,29 @@ def main():
     # Info section
     with st.expander("ℹ️ How It Works"):
         st.markdown("""
-        ### 7 Confluence Factors Analyzed:
+        ### 6 Confluence Factors Analyzed:
         
-        1. **Near Pivot Level** - Weekly R1, R2, S1, S2 (within 2%)
+        1. **Near Pivot Level** - Weekly R1, R2, S1, S2, PP (within 2%)
         2. **Near VRVP Level** - Volume profile POC, VAH, VAL (within 2%)
-        3. **EMA/SMA Alignment** - Bullish/bearish trend confirmation
-        4. **VPA Confluence** - Volume spike >1.5x average
-        5. **Previous Week H/L** - Support/resistance (within 3%)
-        6. **RSI Confirmation** - Neutral zone 30-70
-        7. **Price Distance from 20 EMA** - Proximity check (<3%)
+        3. **EMA/SMA Alignment** - 20/50 EMAs bullish/bearish trend
+        4. **Previous Week H/L** - Support/resistance (within 3%)
+        5. **RSI Confirmation** - Momentum direction + extreme levels
+        6. **Price Distance from 20 EMA** - Proximity check (<3%)
+        
+        **VPA Confluence removed** - Requires human discretion
         
         **Minimum 4 factors required** for a setup to qualify.
         
+        ### Strike Selection (NEW):
+        - **6/6 score:** ATM strike (best probability)
+        - **5/6 score:** 1% OTM strike
+        - **4/6 score:** 2% OTM strike
+        
         ### Setup Types:
-        - **Bullish Breakout** - Price breaking above R1 with bullish trend
-        - **Bearish Breakdown** - Price breaking below S1 with bearish trend
-        - **Bullish Reversal** - Price bouncing at VAL support
-        - **Bearish Reversal** - Price rejecting at VAH resistance
+        - **Bullish Breakout** - Price breaking above R1
+        - **Bearish Breakdown** - Price breaking below S1
+        - **Bullish Reversal** - Price bouncing at VAL
+        - **Bearish Reversal** - Price rejecting at VAH
         """)
 
 
