@@ -31,10 +31,6 @@ if 'scan_results' not in st.session_state:
 if 'active_positions' not in st.session_state:
     st.session_state.active_positions = []
 
-if 'show_add_position_dialog' not in st.session_state:
-    st.session_state.show_add_position_dialog = False
-    st.session_state.position_to_add = None
-
 # Custom CSS
 st.markdown("""
 <style>
@@ -1020,55 +1016,61 @@ def main():
                     
                     # Add to Positions button
                     st.markdown("---")
-                    if st.button(f"➕ Add to Positions", key=f"add_{position_key}", type="primary"):
-                        if len(st.session_state.active_positions) >= 5:
-                            st.error("⚠️ Maximum 5 positions reached. Remove a position before adding new ones.")
-                        else:
-                            st.session_state.position_to_add = setup
-                            st.session_state.show_add_position_dialog = True
-                            st.rerun()
-            
-            # Add Position Dialog
-            if st.session_state.show_add_position_dialog and st.session_state.position_to_add:
-                setup = st.session_state.position_to_add
-                
-                st.markdown("---")
-                st.subheader(f"➕ Add {setup['ticker']} to Active Positions")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    entry_date = st.date_input("Entry Date", value=datetime.now())
-                    dte_input = st.number_input("DTE at Entry", min_value=30, max_value=120, value=60, step=5)
-                with col2:
-                    contracts_input = st.number_input("Number of Contracts", min_value=1, max_value=10, value=1)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("Cancel"):
-                        st.session_state.show_add_position_dialog = False
-                        st.session_state.position_to_add = None
-                        st.rerun()
-                with col2:
-                    if st.button("Add Position", type="primary"):
-                        new_position = {
-                            'ticker': setup['ticker'],
-                            'strike': setup['strike'],
-                            'option_type': setup['option_type'],
-                            'entry_date': entry_date.isoformat(),
-                            'entry_price': setup['price'],
-                            'dte_at_entry': dte_input,
-                            'contracts': contracts_input,
-                            'setup_type': setup['setup_type'],
-                            'target_r1': setup['target_r1'],
-                            'target_r2': setup['target_r2'],
-                            'stop': setup['stop']
-                        }
-                        st.session_state.active_positions.append(new_position)
-                        save_positions(st.session_state.active_positions)
-                        st.session_state.show_add_position_dialog = False
-                        st.session_state.position_to_add = None
-                        st.success(f"✅ Added {setup['ticker']} to Active Positions!")
-                        st.rerun()
+                    
+                    # Check if this position is being added
+                    add_key = f"adding_{position_key}"
+                    if add_key not in st.session_state:
+                        st.session_state[add_key] = False
+                    
+                    if not st.session_state[add_key]:
+                        if st.button(f"➕ Add to Positions", key=f"add_{position_key}", type="primary"):
+                            if len(st.session_state.active_positions) >= 5:
+                                st.error("⚠️ Maximum 5 positions reached. Remove a position before adding new ones.")
+                            else:
+                                st.session_state[add_key] = True
+                                st.rerun()
+                    else:
+                        # Show add position form
+                        st.markdown(f"### ➕ Add {setup['ticker']} to Active Positions")
+                        
+                        with st.form(key=f"form_{position_key}"):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                entry_date = st.date_input("Entry Date", value=datetime.now())
+                                dte_input = st.number_input("DTE at Entry", min_value=30, max_value=120, value=60, step=5)
+                            with col2:
+                                contracts_input = st.number_input("Number of Contracts", min_value=1, max_value=10, value=1)
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                cancel_btn = st.form_submit_button("Cancel")
+                            with col2:
+                                submit_btn = st.form_submit_button("Add Position", type="primary")
+                            
+                            if cancel_btn:
+                                st.session_state[add_key] = False
+                                st.rerun()
+                            
+                            if submit_btn:
+                                new_position = {
+                                    'ticker': setup['ticker'],
+                                    'strike': setup['strike'],
+                                    'option_type': setup['option_type'],
+                                    'entry_date': entry_date.isoformat(),
+                                    'entry_price': setup['price'],
+                                    'dte_at_entry': dte_input,
+                                    'contracts': contracts_input,
+                                    'setup_type': setup['setup_type'],
+                                    'target_r1': setup['target_r1'],
+                                    'target_r2': setup['target_r2'],
+                                    'stop': setup['stop']
+                                }
+                                st.session_state.active_positions.append(new_position)
+                                save_positions(st.session_state.active_positions)
+                                st.session_state[add_key] = False
+                                st.success(f"✅ Added {setup['ticker']} to Active Positions!")
+                                time.sleep(1)
+                                st.rerun()
             
             # Download CSV
             df = pd.DataFrame(filtered_results)
