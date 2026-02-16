@@ -530,7 +530,7 @@ def render_position_card(pos, index):
     # Simple display - just ticker and expiration
     emoji = "🟢" if "Bullish" in pos['setup_type'] else "🔴"
     
-    if st.button(f"{emoji} {pos['ticker']} - Exp {exp_str}", key=f"pos_btn_{index}", use_container_width=True):
+    if st.sidebar.button(f"{emoji} {pos['ticker']} - Exp {exp_str}", key=f"pos_btn_{index}", use_container_width=True):
         st.session_state[f'show_details_{index}'] = True
         st.rerun()
 
@@ -934,9 +934,17 @@ def main():
         if len(st.session_state.active_positions) == 0:
             st.sidebar.info("No active positions. Add setups from scan results below.")
         else:
-            # Show position list
+            # Show clickable position list
+            st.sidebar.markdown("**Click a position:**")
             for i, pos in enumerate(st.session_state.active_positions):
-                render_position_card(pos, i)
+                entry_dt = datetime.fromisoformat(pos['entry_date'])
+                expiration_date = entry_dt + timedelta(days=pos['dte_at_entry'])
+                exp_str = expiration_date.strftime('%m/%d/%y')
+                emoji = "🟢" if "Bullish" in pos['setup_type'] else "🔴"
+                
+                if st.sidebar.button(f"{emoji} {pos['ticker']} - Exp {exp_str}", key=f"pos_btn_{i}", use_container_width=True):
+                    st.session_state[f'show_details_{i}'] = True
+                    st.rerun()
     else:
         # Folder closed - show nothing
         st.sidebar.caption("Click ▶ to open positions folder")
