@@ -535,6 +535,104 @@ def render_position_card(pos, index):
         st.rerun()
 
 
+def render_position_details_sidebar(pos, index):
+    """Render detailed position view in sidebar"""
+    
+    days_held = (datetime.now() - datetime.fromisoformat(pos['entry_date'])).days
+    dte_remaining = pos['dte_at_entry'] - days_held
+    checkpoints = calculate_time_checkpoints(pos['dte_at_entry'], pos['setup_type'])
+    
+    # Fetch current price
+    current_price = get_current_stock_price(pos['ticker'])
+    if not current_price:
+        current_price = pos['entry_price']
+        st.sidebar.warning("⚠️ Using entry price")
+    
+    # Calculate moneyness and changes
+    if pos['option_type'] == 'CALL':
+        moneyness_pct = ((pos['strike'] - current_price) / pos['strike']) * 100
+    else:
+        moneyness_pct = ((current_price - pos['strike']) / pos['strike']) * 100
+    
+    stock_change = ((current_price - pos['entry_price']) / pos['entry_price']) * 100
+    dist_to_r1 = ((pos['target_r1'] - current_price) / current_price) * 100
+    dist_to_r2 = ((pos['target_r2'] - current_price) / current_price) * 100
+    dist_to_stop = ((pos['stop'] - current_price) / current_price) * 100
+    
+    # Header
+    st.sidebar.markdown(f"### 📊 {pos['ticker']} ${pos['strike']}{pos['option_type'][0]}")
+    
+    # Current status
+    st.sidebar.markdown("**Current Status:**")
+    st.sidebar.markdown(f"Price: **${current_price:.2f}** ({stock_change:+.1f}%)")
+    st.sidebar.markdown(f"Days: **{days_held}** / DTE: **{dte_remaining}d**")
+    st.sidebar.markdown(f"Moneyness: **{abs(moneyness_pct):.1f}% {'OTM' if moneyness_pct > 0 else 'ITM'}**")
+    
+    # Status indicator
+    if days_held < checkpoints['quick_exit']:
+        st.sidebar.success(f"🟢 Safe Zone (Day {days_held})")
+    elif days_held < checkpoints['max_hold']:
+        st.sidebar.warning(f"⚠️ Decision Point (Day {days_held})")
+    else:
+        st.sidebar.error(f"🔴 MAX HOLD! (Day {days_held})")
+    
+    st.sidebar.markdown("---")
+    
+    # Targets
+    st.sidebar.markdown("**Targets & Stop:**")
+    st.sidebar.markdown(f"R1: **${pos['target_r1']:.2f}** ({abs(dist_to_r1):.1f}% away)")
+    st.sidebar.markdown(f"R2: **${pos['target_r2']:.2f}** ({abs(dist_to_r2):.1f}% away)")
+    st.sidebar.markdown(f"Stop: **${pos['stop']:.2f}** ({abs(dist_to_stop):.1f}% away)")
+    
+    st.sidebar.markdown("---")
+    
+    # Time checkpoints
+    st.sidebar.markdown("**⏰ Time Checkpoints:**")
+    if days_held < checkpoints['quick_exit']:
+        st.sidebar.markdown(f"✅ Day {days_held} - Safe")
+        st.sidebar.markdown(f"⚠️ Day {checkpoints['quick_exit']} - Decision")
+        st.sidebar.markdown(f"🔴 Day {checkpoints['max_hold']} - Max hold")
+    elif days_held < checkpoints['max_hold']:
+        st.sidebar.markdown(f"⚠️ Day {days_held} - **DECISION ZONE**")
+        st.sidebar.markdown(f"🔴 Day {checkpoints['max_hold']} - Max hold")
+    else:
+        st.sidebar.markdown(f"🔴 Day {days_held} - **EXIT NOW**")
+    st.sidebar.markdown(f"💀 Day {checkpoints['theta_warning']} - Never hold")
+    
+    st.sidebar.markdown("---")
+    
+    # Scaling plan
+    st.sidebar.markdown("**📈 Scaling Plan:**")
+    st.sidebar.markdown(f"R1 hit → Exit **75%** ({pos['contracts'] * 0.75:.0f} contracts)")
+    st.sidebar.markdown(f"R2 hit → Exit **25%** ({pos['contracts'] * 0.25:.0f} contracts)")
+    st.sidebar.markdown(f"Stop hit → Exit **100%**")
+    
+    st.sidebar.markdown("---")
+    
+    # Exit checklist
+    st.sidebar.markdown("**🚨 Exit Checklist:**")
+    st.sidebar.checkbox("R1 hit → Exit 75%", key=f"r1_{index}")
+    st.sidebar.checkbox("Up 100% → Profit take", key=f"profit_{index}")
+    st.sidebar.checkbox("Stop hit → Exit 100%", key=f"stop_{index}")
+    st.sidebar.checkbox(">10% OTM day 14 → Exit", key=f"otm_{index}")
+    st.sidebar.checkbox("Down 50% → Exit 100%", key=f"loss_{index}")
+    
+    st.sidebar.markdown("---")
+    
+    # Actions
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        if st.button("✖️ Close", key=f"close_{index}", use_container_width=True):
+            st.session_state[f'show_details_{index}'] = False
+            st.rerun()
+    with col2:
+        if st.button("🗑️ Remove", key=f"remove_{index}", use_container_width=True):
+            st.session_state.active_positions.pop(index)
+            save_positions(st.session_state.active_positions)
+            st.session_state[f'show_details_{index}'] = False
+            st.rerun()
+
+
 def render_position_details(pos, index):
     """Render detailed position view - full screen"""
     
@@ -800,16 +898,17 @@ def main():
             showing_details = i
             break
     
-    if showing_details is not None:
-        # Show detailed view in main area
-        render_position_details(st.session_state.active_positions[showing_details], showing_details)
-        return  # Skip rest of main area
-    
     if len(st.session_state.active_positions) == 0:
         st.sidebar.info("No active positions. Add setups from scan results below.")
     else:
+        # Show position list
         for i, pos in enumerate(st.session_state.active_positions):
             render_position_card(pos, i)
+        
+        # If a position is selected, show details below the list in sidebar
+        if showing_details is not None:
+            st.sidebar.markdown("---")
+            render_position_details_sidebar(st.session_state.active_positions[showing_details], showing_details)
     
     # Main area - Scan button
     col1, col2, col3 = st.columns([2, 2, 1])
