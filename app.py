@@ -889,7 +889,28 @@ def main():
     
     # Active Positions Section
     st.sidebar.markdown("---")
-    st.sidebar.subheader(f"📂 Active Positions ({len(st.session_state.active_positions)}/5)")
+    
+    # Initialize folder state
+    if 'positions_folder_open' not in st.session_state:
+        st.session_state.positions_folder_open = True
+    
+    # Folder header with toggle
+    col1, col2 = st.sidebar.columns([4, 1])
+    with col1:
+        st.sidebar.subheader(f"📂 Active Positions ({len(st.session_state.active_positions)}/5)")
+    with col2:
+        # Toggle button
+        if st.session_state.positions_folder_open:
+            if st.button("▼", key="close_folder", help="Close folder"):
+                st.session_state.positions_folder_open = False
+                # Close any open position details
+                for i in range(len(st.session_state.active_positions)):
+                    st.session_state[f'show_details_{i}'] = False
+                st.rerun()
+        else:
+            if st.button("▶", key="open_folder", help="Open folder"):
+                st.session_state.positions_folder_open = True
+                st.rerun()
     
     # Check if showing details for any position
     showing_details = None
@@ -898,17 +919,31 @@ def main():
             showing_details = i
             break
     
-    if len(st.session_state.active_positions) == 0:
-        st.sidebar.info("No active positions. Add setups from scan results below.")
+    # Only show contents if folder is open
+    if st.session_state.positions_folder_open:
+        if len(st.session_state.active_positions) == 0:
+            st.sidebar.info("No active positions. Add setups from scan results below.")
+        else:
+            # Show position list
+            for i, pos in enumerate(st.session_state.active_positions):
+                render_position_card(pos, i)
+            
+            # If a position is selected, show it with indent/indicator
+            if showing_details is not None:
+                st.sidebar.markdown("---")
+                # Show selected position with return indicator
+                pos = st.session_state.active_positions[showing_details]
+                entry_dt = datetime.fromisoformat(pos['entry_date'])
+                expiration_date = entry_dt + timedelta(days=pos['dte_at_entry'])
+                exp_str = expiration_date.strftime('%m/%d/%y')
+                emoji = "🟢" if "Bullish" in pos['setup_type'] else "🔴"
+                
+                st.sidebar.markdown(f"**↳ {emoji} {pos['ticker']} - Exp {exp_str}**")
+                st.sidebar.markdown("---")
+                render_position_details_sidebar(pos, showing_details)
     else:
-        # Show position list
-        for i, pos in enumerate(st.session_state.active_positions):
-            render_position_card(pos, i)
-        
-        # If a position is selected, show details below the list in sidebar
-        if showing_details is not None:
-            st.sidebar.markdown("---")
-            render_position_details_sidebar(st.session_state.active_positions[showing_details], showing_details)
+        # Folder closed - show nothing
+        st.sidebar.caption("Click ▶ to open positions folder")
     
     # Main area - Scan button
     col1, col2, col3 = st.columns([2, 2, 1])
