@@ -737,7 +737,8 @@ def render_position_details(pos, index):
     # Header with back and remove buttons
     col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
-        st.markdown(f"## 📊 {pos['ticker']} ${pos['strike']} {pos['option_type']}")
+        option_color = "green" if pos['option_type'] == 'CALL' else "red"
+        st.markdown(f"## 📊 {pos['ticker']} <span style='color:{option_color}; font-weight:bold;'>${pos['strike']} {pos['option_type']}</span>", unsafe_allow_html=True)
     with col2:
         if st.button("❌ Remove Position", key=f"remove_{index}", type="secondary"):
             st.session_state.active_positions.pop(index)
@@ -1066,11 +1067,15 @@ def main():
         # Show selected position under folder if one is selected
         if showing_details is not None:
             pos = st.session_state.active_positions[showing_details]
-            entry_dt = datetime.fromisoformat(pos['entry_date'])
-            expiration_date = entry_dt + timedelta(days=pos['dte_at_entry'])
-            exp_str = expiration_date.strftime('%m/%d/%y')
+            if 'expiration_date' in pos:
+                exp_dt = datetime.fromisoformat(pos['expiration_date'])
+                exp_str = exp_dt.strftime('%m/%d/%y')
+            else:
+                entry_dt = datetime.fromisoformat(pos['entry_date'])
+                expiration_date = entry_dt + timedelta(days=pos['dte_at_entry'])
+                exp_str = expiration_date.strftime('%m/%d/%y')
             emoji = "🟢" if "Bullish" in pos['setup_type'] else "🔴"
-            st.sidebar.caption(f"↳ {emoji} {pos['ticker']} - Exp {exp_str}")
+            st.sidebar.caption(f"↳ {emoji} {pos['ticker']} ${pos['strike']}{pos['option_type'][0]} - Exp {exp_str}")
     
     with col2:
         # Toggle button
@@ -1094,12 +1099,16 @@ def main():
             # Show clickable position list
             st.sidebar.markdown("**Click a position:**")
             for i, pos in enumerate(st.session_state.active_positions):
-                entry_dt = datetime.fromisoformat(pos['entry_date'])
-                expiration_date = entry_dt + timedelta(days=pos['dte_at_entry'])
-                exp_str = expiration_date.strftime('%m/%d/%y')
+                if 'expiration_date' in pos:
+                    exp_dt = datetime.fromisoformat(pos['expiration_date'])
+                    exp_str = exp_dt.strftime('%m/%d/%y')
+                else:
+                    entry_dt = datetime.fromisoformat(pos['entry_date'])
+                    expiration_date = entry_dt + timedelta(days=pos['dte_at_entry'])
+                    exp_str = expiration_date.strftime('%m/%d/%y')
                 emoji = "🟢" if "Bullish" in pos['setup_type'] else "🔴"
                 
-                if st.sidebar.button(f"{emoji} {pos['ticker']} - Exp {exp_str}", key=f"pos_btn_{i}", use_container_width=True):
+                if st.sidebar.button(f"{emoji} {pos['ticker']} ${pos['strike']}{pos['option_type'][0]} - Exp {exp_str}", key=f"pos_btn_{i}", use_container_width=True):
                     st.session_state[f'show_details_{i}'] = True
                     st.rerun()
     else:
