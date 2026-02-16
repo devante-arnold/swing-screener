@@ -518,55 +518,44 @@ def get_current_stock_price(ticker):
 
 
 def render_position_card(pos, index):
-    """Render compact position card in sidebar"""
+    """Render simple position card in sidebar - just ticker and expiration"""
     days_held = (datetime.now() - datetime.fromisoformat(pos['entry_date'])).days
     dte_remaining = pos['dte_at_entry'] - days_held
     
-    # Fetch current price
-    current_price = get_current_stock_price(pos['ticker'])
-    if current_price:
-        if pos['option_type'] == 'CALL':
-            moneyness_pct = ((pos['strike'] - current_price) / pos['strike']) * 100
-        else:
-            moneyness_pct = ((current_price - pos['strike']) / pos['strike']) * 100
-        
-        moneyness_text = f"{abs(moneyness_pct):.1f}% {'OTM' if moneyness_pct > 0 else 'ITM'}"
-    else:
-        current_price = pos['entry_price']
-        moneyness_text = "N/A"
+    # Calculate expiration date
+    entry_dt = datetime.fromisoformat(pos['entry_date'])
+    expiration_date = entry_dt + timedelta(days=pos['dte_at_entry'])
+    exp_str = expiration_date.strftime('%m/%d/%y')
     
-    # Determine status emoji
-    checkpoints = calculate_time_checkpoints(pos['dte_at_entry'], pos['setup_type'])
-    if days_held >= checkpoints['max_hold']:
-        status_emoji = "🔴"
-    elif days_held >= checkpoints['quick_exit']:
-        status_emoji = "⚠️"
-    else:
-        status_emoji = "🟢"
-    
+    # Simple display - just ticker and expiration
     emoji = "🟢" if "Bullish" in pos['setup_type'] else "🔴"
     
-    with st.expander(f"{emoji} {pos['ticker']} ${pos['strike']}{pos['option_type'][0]} - Day {days_held}"):
-        st.markdown(f"**Entry:** {pos['entry_date'][:10]} | **DTE:** {dte_remaining}d")
-        st.markdown(f"**Current:** ${current_price:.2f} | **Moneyness:** {moneyness_text}")
-        st.markdown(f"**Status:** {status_emoji} {'Max hold!' if days_held >= checkpoints['max_hold'] else 'On track' if days_held < checkpoints['quick_exit'] else 'Decision point'}")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("📊 Details", key=f"details_{index}"):
-                st.session_state[f'show_details_{index}'] = True
-                st.rerun()
-        with col2:
-            if st.button("❌ Exit", key=f"exit_{index}"):
-                st.session_state.active_positions.pop(index)
-                save_positions(st.session_state.active_positions)
-                st.success(f"Removed {pos['ticker']} from positions")
-                st.rerun()
+    if st.button(f"{emoji} {pos['ticker']} - Exp {exp_str}", key=f"pos_btn_{index}", use_container_width=True):
+        st.session_state[f'show_details_{index}'] = True
+        st.rerun()
 
 
 def render_position_details(pos, index):
-    """Render detailed position view"""
-    st.markdown(f"## {pos['ticker']} ${pos['strike']} {pos['option_type']} - Detailed View")
+    """Render detailed position view - full screen"""
+    
+    # Header with back and remove buttons
+    col1, col2, col3 = st.columns([3, 1, 1])
+    with col1:
+        st.markdown(f"## 📊 {pos['ticker']} ${pos['strike']} {pos['option_type']}")
+    with col2:
+        if st.button("❌ Remove Position", key=f"remove_{index}", type="secondary"):
+            st.session_state.active_positions.pop(index)
+            save_positions(st.session_state.active_positions)
+            st.session_state[f'show_details_{index}'] = False
+            st.success(f"Removed {pos['ticker']}")
+            time.sleep(1)
+            st.rerun()
+    with col3:
+        if st.button("⬅️ Back", key=f"back_{index}", type="primary"):
+            st.session_state[f'show_details_{index}'] = False
+            st.rerun()
+    
+    st.markdown("---")
     
     days_held = (datetime.now() - datetime.fromisoformat(pos['entry_date'])).days
     dte_remaining = pos['dte_at_entry'] - days_held
@@ -576,6 +565,7 @@ def render_position_details(pos, index):
     current_price = get_current_stock_price(pos['ticker'])
     if not current_price:
         current_price = pos['entry_price']
+        st.warning("⚠️ Unable to fetch current price. Using entry price.")
     
     # Calculate moneyness
     if pos['option_type'] == 'CALL':
@@ -583,90 +573,171 @@ def render_position_details(pos, index):
     else:
         moneyness_pct = ((current_price - pos['strike']) / pos['strike']) * 100
     
+    stock_change = ((current_price - pos['entry_price']) / pos['entry_price']) * 100
+    
+    # Key metrics at top
+    st.markdown("### 📈 Current Status")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Current Stock Price", f"${current_price:.2f}", f"{stock_change:+.1f}%")
+    with col2:
+        st.metric("Days Held", f"{days_held} days", f"{dte_remaining}d DTE left")
+    with col3:
+        moneyness_label = "OTM" if moneyness_pct > 0 else "ITM"
+        st.metric("Moneyness", f"{abs(moneyness_pct):.1f}% {moneyness_label}")
+    with col4:
+        if days_held < checkpoints['quick_exit']:
+            status = "🟢 On Track"
+        elif days_held < checkpoints['max_hold']:
+            status = "⚠️ Decision Zone"
+        else:
+            status = "🔴 Max Hold!"
+        st.metric("Status", status)
+    
+    st.markdown("---")
+    
     # Position info
-    st.markdown("### Position Information")
+    st.markdown("### 📋 Position Details")
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Entry Date", pos['entry_date'][:10])
-        st.metric("Entry Price", f"${pos['entry_price']:.2f}")
-        st.metric("Strike", f"${pos['strike']}")
+        st.markdown(f"**Entry Date:** {pos['entry_date'][:10]}")
+        st.markdown(f"**Entry Price:** ${pos['entry_price']:.2f}")
+        st.markdown(f"**Strike:** ${pos['strike']}")
+        st.markdown(f"**Contracts:** {pos['contracts']}")
     with col2:
-        st.metric("Contracts", pos['contracts'])
-        st.metric("DTE at Entry", f"{pos['dte_at_entry']}d")
-        st.metric("DTE Remaining", f"{dte_remaining}d")
+        st.markdown(f"**Setup Type:** {pos['setup_type']}")
+        st.markdown(f"**DTE at Entry:** {pos['dte_at_entry']} days")
+        st.markdown(f"**Target R1:** ${pos['target_r1']:.2f}")
+        st.markdown(f"**Target R2:** ${pos['target_r2']:.2f}")
     with col3:
-        st.metric("Days Held", f"{days_held}d")
-        st.metric("Current Price", f"${current_price:.2f}")
-        st.metric("Moneyness", f"{abs(moneyness_pct):.1f}% {'OTM' if moneyness_pct > 0 else 'ITM'}")
+        dist_to_r1 = ((pos['target_r1'] - current_price) / current_price) * 100
+        dist_to_r2 = ((pos['target_r2'] - current_price) / current_price) * 100
+        dist_to_stop = ((pos['stop'] - current_price) / current_price) * 100
+        
+        st.markdown(f"**To R1:** {abs(dist_to_r1):.1f}% away")
+        st.markdown(f"**To R2:** {abs(dist_to_r2):.1f}% away")
+        st.markdown(f"**To Stop:** {abs(dist_to_stop):.1f}% away")
+        st.markdown(f"**Stop Loss:** ${pos['stop']:.2f}")
+    
+    st.markdown("---")
     
     # Time exit strategy
     st.markdown("### ⏰ Time Exit Strategy")
     st.markdown(f"**Setup Type:** {pos['setup_type']}")
     st.markdown(f"**Based on {pos['dte_at_entry']} DTE entry:**")
     
-    if days_held < checkpoints['quick_exit']:
-        st.markdown(f"<p class='checkpoint-safe'>✅ Day {days_held} (Today) - Safe zone</p>", unsafe_allow_html=True)
-        st.markdown(f"<p class='checkpoint-warning'>⚠️ Day {checkpoints['quick_exit']} - Decision point (approaching)</p>", unsafe_allow_html=True)
-    elif days_held < checkpoints['max_hold']:
-        st.markdown(f"<p class='checkpoint-warning'>⚠️ Day {days_held} (Today) - Decision zone</p>", unsafe_allow_html=True)
-        st.markdown(f"<p class='checkpoint-danger'>🔴 Day {checkpoints['max_hold']} - Maximum hold (approaching)</p>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"<p class='checkpoint-danger'>🔴 Day {days_held} (Today) - PAST MAX HOLD - EXIT NOW</p>", unsafe_allow_html=True)
+    st.markdown("")
     
-    st.markdown(f"<p class='checkpoint-danger'>💀 Day {checkpoints['theta_warning']} - Theta death zone (never hold this long)</p>", unsafe_allow_html=True)
+    # Checkpoint display
+    col1, col2, col3 = st.columns(3)
     
-    # Targets and stops
-    st.markdown("### 📊 Targets & Stops")
-    col1, col2 = st.columns(2)
     with col1:
-        dist_to_r1 = ((pos['target_r1'] - current_price) / current_price) * 100
-        dist_to_r2 = ((pos['target_r2'] - current_price) / current_price) * 100
-        st.markdown(f"**Target R1:** ${pos['target_r1']:.2f} ({dist_to_r1:+.1f}% away)")
-        st.markdown(f"**Target R2:** ${pos['target_r2']:.2f} ({dist_to_r2:+.1f}% away)")
+        if days_held < checkpoints['quick_exit']:
+            st.markdown(f"<div style='padding:1rem; background:#d4edda; border-left:4px solid #28a745; border-radius:4px;'><b>✅ Day {days_held} (Today)</b><br>Safe Zone - Continue monitoring</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #6c757d; border-radius:4px;'><b>Day 0-{checkpoints['quick_exit']}</b><br>Safe Zone (passed)</div>", unsafe_allow_html=True)
+    
     with col2:
-        dist_to_stop = ((pos['stop'] - current_price) / current_price) * 100
-        st.markdown(f"**Stop Loss:** ${pos['stop']:.2f} ({dist_to_stop:+.1f}% away)")
+        if days_held >= checkpoints['quick_exit'] and days_held < checkpoints['max_hold']:
+            st.markdown(f"<div style='padding:1rem; background:#fff3cd; border-left:4px solid #ffc107; border-radius:4px;'><b>⚠️ Day {days_held} (Today)</b><br>Decision Point - Exit if no R1 progress</div>", unsafe_allow_html=True)
+        elif days_held < checkpoints['quick_exit']:
+            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #ffc107; border-radius:4px;'><b>Day {checkpoints['quick_exit']}</b><br>Decision Point (upcoming)</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #6c757d; border-radius:4px;'><b>Day {checkpoints['quick_exit']}</b><br>Decision Point (passed)</div>", unsafe_allow_html=True)
+    
+    with col3:
+        if days_held >= checkpoints['max_hold']:
+            st.markdown(f"<div style='padding:1rem; background:#f8d7da; border-left:4px solid #dc3545; border-radius:4px;'><b>🔴 Day {days_held} (Today)</b><br>MAXIMUM HOLD - EXIT NOW!</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #dc3545; border-radius:4px;'><b>Day {checkpoints['max_hold']}</b><br>Maximum Hold - Exit by this day</div>", unsafe_allow_html=True)
+    
+    st.markdown("")
+    st.markdown(f"<div style='padding:1rem; background:#343a40; color:white; border-left:4px solid #000; border-radius:4px;'><b>💀 Day {checkpoints['theta_warning']}</b><br>Theta Death Zone - Never hold this long</div>", unsafe_allow_html=True)
+    
+    st.markdown("---")
     
     # Scaling plan
     st.markdown("### 📈 Scaling Exit Plan")
-    st.markdown(f"""
-    **If R1 (${pos['target_r1']:.2f}) hit:**
-    - → Sell 75% ({pos['contracts'] * 0.75:.1f} contracts)
-    - → Let 25% run to R2
     
-    **If R2 (${pos['target_r2']:.2f}) hit:**
-    - → Sell remaining 25%
-    - → Trade complete ✅
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"""
+        **If R1 (${pos['target_r1']:.2f}) hit:**
+        - ✅ Sell 75% ({pos['contracts'] * 0.75:.1f} contracts)
+        - ✅ Lock in majority of profit
+        - ✅ Let 25% run to R2
+        """)
+    with col2:
+        st.markdown(f"""
+        **If R2 (${pos['target_r2']:.2f}) hit:**
+        - ✅ Sell remaining 25%
+        - ✅ Trade complete
+        
+        **If Stop (${pos['stop']:.2f}) hit:**
+        - ❌ Exit 100% immediately
+        - ❌ Move on to next setup
+        """)
     
-    **If Stop (${pos['stop']:.2f}) hit:**
-    - → Exit 100%
-    - → Move on to next setup
-    """)
+    st.markdown("---")
     
     # Exit checklist
     st.markdown("### 🚨 Exit Checklist")
-    st.checkbox("R1 hit → Exit 75% of position", key=f"r1_{index}")
-    st.checkbox("P/L: Up 100% → Consider profit take", key=f"profit_{index}")
-    st.checkbox("Stop hit (1.5x ATR) → Exit 100%", key=f"stop_{index}")
-    st.checkbox(f"Moneyness: >10% OTM at day 14 → Exit 100% (Currently {abs(moneyness_pct):.1f}% OTM)", key=f"otm_{index}")
-    st.checkbox("P/L: Down 50% → Exit 100%", key=f"loss_{index}")
+    st.markdown("*Check these daily to know when to exit:*")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.checkbox(f"☐ R1 hit → Exit 75% of position", key=f"r1_{index}")
+        st.checkbox(f"☐ P/L: Up 100% → Consider profit take", key=f"profit_{index}")
+        st.checkbox(f"☐ Stop hit (${pos['stop']:.2f}) → Exit 100%", key=f"stop_{index}")
+    with col2:
+        st.checkbox(f"☐ Moneyness: >10% OTM at day 14 → Exit 100%", key=f"otm_{index}")
+        st.checkbox(f"☐ P/L: Down 50% → Exit 100%", key=f"loss_{index}")
+    
+    st.markdown("---")
     
     # Adjustment rules
     st.markdown("### 🔧 Adjustment Rules")
-    st.markdown("""
-    **⚠️ Stock moved but option didn't:**
-    - If stock up 2%+ but option still down → Exit (IV crush/theta)
     
-    **✅ Early profit (before targets):**
-    - If up 50%+ before day 7 → Take it (don't be greedy)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        **⚠️ Stock moved but option didn't:**
+        - If stock up 2%+ but option still down
+        - → Exit immediately (IV crush/theta)
+        
+        **✅ Early profit (before targets):**
+        - If up 50%+ before day 7
+        - → Take it (don't be greedy)
+        """)
+    with col2:
+        st.markdown("""
+        **🔄 Stopped on gap but setup valid:**
+        - If gapped through stop
+        - But setup still intact
+        - → Can re-enter when stabilizes
+        
+        **📊 Stock at target but option flat:**
+        - If stock reaches R1
+        - But option hasn't gained
+        - → Exit anyway (something wrong)
+        """)
     
-    **🔄 Stopped on gap but setup valid:**
-    - If gapped through stop but setup intact → Can re-enter when stabilizes
-    """)
+    st.markdown("---")
     
-    if st.button("⬅️ Back to Positions", key=f"back_{index}"):
-        st.session_state[f'show_details_{index}'] = False
-        st.rerun()
+    # Bottom buttons
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("⬅️ Back to Positions List", key=f"back_bottom_{index}", use_container_width=True, type="primary"):
+            st.session_state[f'show_details_{index}'] = False
+            st.rerun()
+    with col2:
+        if st.button("❌ Remove This Position", key=f"remove_bottom_{index}", use_container_width=True, type="secondary"):
+            st.session_state.active_positions.pop(index)
+            save_positions(st.session_state.active_positions)
+            st.session_state[f'show_details_{index}'] = False
+            st.success(f"Removed {pos['ticker']}")
+            time.sleep(1)
+            st.rerun()
 
 
 def main():
