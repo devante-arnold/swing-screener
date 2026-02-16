@@ -184,19 +184,32 @@ class SwingScreener:
                 vol = recent.loc[mask, 'Volume'].sum()
                 volume_profile.append((bins[i], vol))
             
+            # POC = Point of Control (price with highest volume)
             poc_price = max(volume_profile, key=lambda x: x[1])[0] if volume_profile else recent['Close'].iloc[-1]
             
+            # Calculate Value Area (70% of volume around POC)
             total_vol = sum(v for _, v in volume_profile)
-            cumulative = 0
-            val, vah = poc_price, poc_price
+            sorted_profile = sorted(volume_profile, key=lambda x: x[1], reverse=True)
             
-            for price, vol in sorted(volume_profile, key=lambda x: x[0]):
-                cumulative += vol
-                if cumulative < total_vol * 0.15:
-                    val = price
-                elif cumulative > total_vol * 0.85:
-                    vah = price
+            # Find prices that account for 70% of volume
+            value_area_vol = 0
+            value_area_prices = []
+            target_vol = total_vol * 0.70
+            
+            for price, vol in sorted_profile:
+                if value_area_vol < target_vol:
+                    value_area_prices.append(price)
+                    value_area_vol += vol
+                else:
                     break
+            
+            # VAL = lowest price in value area, VAH = highest
+            if value_area_prices:
+                val = min(value_area_prices)
+                vah = max(value_area_prices)
+            else:
+                val = price_min
+                vah = price_max
             
             return {'POC': poc_price, 'VAH': vah, 'VAL': val}
         except:
@@ -404,31 +417,68 @@ class SwingScreener:
             
             # Calculate targets and stops
             if "Bullish" in setup_type:
-                target_r1 = pivots['R1'] if current_price < pivots['R1'] else pivots['R2']
-                target_r2 = pivots['R2']
+                # Fix target logic when already above R1
+                if current_price < pivots['R1']:
+                    target_r1, target_r2 = pivots['R1'], pivots['R2']
+                elif current_price < pivots['R2']:
+                    target_r1 = pivots['R2']
+                    target_r2 = pivots['R2'] + (pivots['R2'] - pivots['R1'])  # Extend above R2
+                else:
+                    # Already above R2
+                    range_size = pivots['R2'] - pivots['R1']
+                    target_r1 = current_price + range_size * 0.5
+                    target_r2 = current_price + range_size
+                
                 stop = current_price - (1.5 * atr)
                 option_type = "CALL"
                 
-                # Strike selection based on score
+                # Strike selection based on score - REALISTIC ROUNDING
                 if score == 6:
-                    strike = round(current_price)  # ATM
+                    suggested_strike = current_price  # ATM
                 elif score == 5:
-                    strike = round(current_price * 1.01)  # 1% OTM
+                    suggested_strike = current_price * 1.01  # 1% OTM
                 else:
-                    strike = round(current_price * 1.02)  # 2% OTM
+                    suggested_strike = current_price * 1.02  # 2% OTM
+                
+                # Round to realistic strike prices
+                if current_price >= 100:
+                    strike = round(suggested_strike / 5) * 5  # $5 increments ($100, $105, $110)
+                elif current_price >= 20:
+                    strike = round(suggested_strike)  # $1 increments ($95, $96, $97)
+                else:
+                    strike = round(suggested_strike * 2) / 2  # $0.50 increments ($19.50, $20.00)
+                
             else:
-                target_r1 = pivots['S1'] if current_price > pivots['S1'] else pivots['S2']
-                target_r2 = pivots['S2']
+                # Fix target logic when already below S1
+                if current_price > pivots['S1']:
+                    target_r1, target_r2 = pivots['S1'], pivots['S2']
+                elif current_price > pivots['S2']:
+                    target_r1 = pivots['S2']
+                    target_r2 = pivots['S2'] - (pivots['S1'] - pivots['S2'])  # Extend below S2
+                else:
+                    # Already below S2
+                    range_size = pivots['S1'] - pivots['S2']
+                    target_r1 = current_price - range_size * 0.5
+                    target_r2 = current_price - range_size
+                
                 stop = current_price + (1.5 * atr)
                 option_type = "PUT"
                 
-                # Strike selection based on score
+                # Strike selection based on score - REALISTIC ROUNDING
                 if score == 6:
-                    strike = round(current_price)  # ATM
+                    suggested_strike = current_price  # ATM
                 elif score == 5:
-                    strike = round(current_price * 0.99)  # 1% OTM
+                    suggested_strike = current_price * 0.99  # 1% OTM
                 else:
-                    strike = round(current_price * 0.98)  # 2% OTM
+                    suggested_strike = current_price * 0.98  # 2% OTM
+                
+                # Round to realistic strike prices
+                if current_price >= 100:
+                    strike = round(suggested_strike / 5) * 5
+                elif current_price >= 20:
+                    strike = round(suggested_strike)
+                else:
+                    strike = round(suggested_strike * 2) / 2
             
             if score < self.confluence_threshold:
                 return None
@@ -488,20 +538,63 @@ class SwingScreener:
 
 
 def calculate_time_checkpoints(dte_at_entry, setup_type):
-    """Calculate time-based exit checkpoints"""
-    if "breakout" in setup_type.lower() or "breakdown" in setup_type.lower():
-        quick_exit = 10
-        max_hold = 15
-    else:  # Reversal
-        quick_exit = 10
-        max_hold = 14
+    """
+    Calculate time-based exit checkpoints based on theta decay zones
     
-    theta_warning = 25
+    Key DTE thresholds (based on theta decay science):
+    - 45 DTE: Theta acceleration begins (~2%/day)
+    - 30 DTE: Major theta impact (~3%/day) 
+    - 21 DTE: Exponential decay zone (~4-5%/day)
+    - 14 DTE: Death zone (avoid!)
+    
+    Args:
+        dte_at_entry: Days to expiration when position opened
+        setup_type: "Bullish breakout", "Bearish breakdown", "Reversal", etc.
+    
+    Returns:
+        Dictionary with checkpoint days and DTE thresholds
+    """
+    
+    if "breakout" in setup_type.lower() or "breakdown" in setup_type.lower():
+        # Breakouts: Move fast or fail
+        quick_exit_days = 7  # If no progress in 7 days, setup failed
+        max_hold_dte = 30    # Exit when 30 DTE remaining (theta danger zone)
+    else:  # Reversal setups
+        # Reversals: Need time to develop
+        quick_exit_days = 10  # Give more time for reversal to play out
+        max_hold_dte = 25     # Can hold slightly longer (but not below 25 DTE)
+    
+    # Calculate max hold in days from entry
+    max_hold_days = dte_at_entry - max_hold_dte
+    
+    # Safety checks
+    if max_hold_days < quick_exit_days:
+        # If entered with low DTE, adjust
+        max_hold_days = quick_exit_days + 3
+    
+    if max_hold_days < 5:
+        # Minimum 5 days to give trade a chance
+        max_hold_days = 5
+    
+    # Theta warning = 21 DTE (universal danger zone)
+    theta_warning_days = dte_at_entry - 21
+    if theta_warning_days < max_hold_days:
+        theta_warning_days = max_hold_days + 5
+    
+    # Calculate actual DTE thresholds for display
+    quick_exit_dte = dte_at_entry - quick_exit_days
+    max_hold_dte_actual = dte_at_entry - max_hold_days
+    theta_warning_dte = dte_at_entry - theta_warning_days
     
     return {
-        'quick_exit': quick_exit,
-        'max_hold': max_hold,
-        'theta_warning': theta_warning
+        'quick_exit': quick_exit_days,
+        'max_hold': max_hold_days,
+        'theta_warning': theta_warning_days,
+        'dte_thresholds': {
+            'quick_exit_dte': quick_exit_dte,
+            'max_hold_dte': max_hold_dte_actual,
+            'theta_warning_dte': theta_warning_dte
+        }
     }
 
 
@@ -517,29 +610,19 @@ def get_current_stock_price(ticker):
     return None
 
 
-def render_position_card(pos, index):
-    """Render simple position card in sidebar - just ticker and expiration"""
-    days_held = (datetime.now() - datetime.fromisoformat(pos['entry_date'])).days
-    dte_remaining = pos['dte_at_entry'] - days_held
-    
-    # Calculate expiration date
-    entry_dt = datetime.fromisoformat(pos['entry_date'])
-    expiration_date = entry_dt + timedelta(days=pos['dte_at_entry'])
-    exp_str = expiration_date.strftime('%m/%d/%y')
-    
-    # Simple display - just ticker and expiration
-    emoji = "🟢" if "Bullish" in pos['setup_type'] else "🔴"
-    
-    if st.sidebar.button(f"{emoji} {pos['ticker']} - Exp {exp_str}", key=f"pos_btn_{index}", use_container_width=True):
-        st.session_state[f'show_details_{index}'] = True
-        st.rerun()
-
-
 def render_position_details_sidebar(pos, index):
     """Render detailed position view in sidebar"""
     
     days_held = (datetime.now() - datetime.fromisoformat(pos['entry_date'])).days
-    dte_remaining = pos['dte_at_entry'] - days_held
+    
+    # Calculate DTE from actual expiration date if available
+    if 'expiration_date' in pos:
+        exp_dt = datetime.fromisoformat(pos['expiration_date'])
+        dte_remaining = (exp_dt.date() - datetime.now().date()).days
+    else:
+        # Fallback to old calculation
+        dte_remaining = pos['dte_at_entry'] - days_held
+    
     checkpoints = calculate_time_checkpoints(pos['dte_at_entry'], pos['setup_type'])
     
     # Fetch current price
@@ -548,11 +631,25 @@ def render_position_details_sidebar(pos, index):
         current_price = pos['entry_price']
         st.sidebar.warning("⚠️ Using entry price")
     
-    # Calculate moneyness and changes
+    # CORRECT moneyness calculation
     if pos['option_type'] == 'CALL':
-        moneyness_pct = ((pos['strike'] - current_price) / pos['strike']) * 100
-    else:
-        moneyness_pct = ((current_price - pos['strike']) / pos['strike']) * 100
+        if pos['strike'] > current_price:
+            # Call is OTM (strike above stock price)
+            moneyness_pct = ((pos['strike'] - current_price) / current_price) * 100
+            moneyness_status = "OTM"
+        else:
+            # Call is ITM (strike below stock price)
+            moneyness_pct = ((current_price - pos['strike']) / current_price) * 100
+            moneyness_status = "ITM"
+    else:  # PUT
+        if pos['strike'] < current_price:
+            # Put is OTM (strike below stock price)
+            moneyness_pct = ((current_price - pos['strike']) / current_price) * 100
+            moneyness_status = "OTM"
+        else:
+            # Put is ITM (strike above stock price)
+            moneyness_pct = ((pos['strike'] - current_price) / current_price) * 100
+            moneyness_status = "ITM"
     
     stock_change = ((current_price - pos['entry_price']) / pos['entry_price']) * 100
     dist_to_r1 = ((pos['target_r1'] - current_price) / current_price) * 100
@@ -566,7 +663,7 @@ def render_position_details_sidebar(pos, index):
     st.sidebar.markdown("**Current Status:**")
     st.sidebar.markdown(f"Price: **${current_price:.2f}** ({stock_change:+.1f}%)")
     st.sidebar.markdown(f"Days: **{days_held}** / DTE: **{dte_remaining}d**")
-    st.sidebar.markdown(f"Moneyness: **{abs(moneyness_pct):.1f}% {'OTM' if moneyness_pct > 0 else 'ITM'}**")
+    st.sidebar.markdown(f"Moneyness: **{moneyness_pct:.1f}% {moneyness_status}**")
     
     # Status indicator
     if days_held < checkpoints['quick_exit']:
@@ -589,17 +686,18 @@ def render_position_details_sidebar(pos, index):
     # Time checkpoints
     st.sidebar.markdown("**⏰ Time Checkpoints:**")
     if days_held < checkpoints['quick_exit']:
-        st.sidebar.markdown(f"✅ Day {days_held} - Safe")
-        st.sidebar.markdown(f"⚠️ Day {checkpoints['quick_exit']} - Decision")
-        st.sidebar.markdown(f"🔴 Day {checkpoints['max_hold']} - Max hold")
+        st.sidebar.markdown(f"✅ Day {days_held} ({dte_remaining} DTE) - Safe")
+        st.sidebar.markdown(f"⚠️ Day {checkpoints['quick_exit']} ({checkpoints['dte_thresholds']['quick_exit_dte']} DTE) - Decision")
+        st.sidebar.markdown(f"🔴 Day {checkpoints['max_hold']} ({checkpoints['dte_thresholds']['max_hold_dte']} DTE) - Max hold")
     elif days_held < checkpoints['max_hold']:
-        st.sidebar.markdown(f"⚠️ Day {days_held} - **DECISION ZONE**")
-        st.sidebar.markdown(f"🔴 Day {checkpoints['max_hold']} - Max hold")
+        st.sidebar.markdown(f"⚠️ Day {days_held} ({dte_remaining} DTE) - **DECISION ZONE**")
+        st.sidebar.markdown(f"🔴 Day {checkpoints['max_hold']} ({checkpoints['dte_thresholds']['max_hold_dte']} DTE) - Max hold")
     else:
-        st.sidebar.markdown(f"🔴 Day {days_held} - **EXIT NOW**")
-    st.sidebar.markdown(f"💀 Day {checkpoints['theta_warning']} - Never hold")
+        st.sidebar.markdown(f"🔴 Day {days_held} ({dte_remaining} DTE) - **EXIT NOW**")
+    st.sidebar.markdown(f"💀 Day {checkpoints['theta_warning']} ({checkpoints['dte_thresholds']['theta_warning_dte']} DTE) - Never hold")
     
     st.sidebar.markdown("---")
+    st.sidebar.caption(f"*Theta decay: ~{3 if dte_remaining > 30 else 5 if dte_remaining > 21 else 8}%/day at {dte_remaining} DTE*")
     
     # Scaling plan
     st.sidebar.markdown("**📈 Scaling Plan:**")
@@ -656,7 +754,15 @@ def render_position_details(pos, index):
     st.markdown("---")
     
     days_held = (datetime.now() - datetime.fromisoformat(pos['entry_date'])).days
-    dte_remaining = pos['dte_at_entry'] - days_held
+    
+    # Calculate DTE from actual expiration date if available
+    if 'expiration_date' in pos:
+        exp_dt = datetime.fromisoformat(pos['expiration_date'])
+        dte_remaining = (exp_dt.date() - datetime.now().date()).days
+    else:
+        # Fallback to old calculation
+        dte_remaining = pos['dte_at_entry'] - days_held
+    
     checkpoints = calculate_time_checkpoints(pos['dte_at_entry'], pos['setup_type'])
     
     # Fetch current price
@@ -665,11 +771,25 @@ def render_position_details(pos, index):
         current_price = pos['entry_price']
         st.warning("⚠️ Unable to fetch current price. Using entry price.")
     
-    # Calculate moneyness
+    # CORRECT moneyness calculation
     if pos['option_type'] == 'CALL':
-        moneyness_pct = ((pos['strike'] - current_price) / pos['strike']) * 100
-    else:
-        moneyness_pct = ((current_price - pos['strike']) / pos['strike']) * 100
+        if pos['strike'] > current_price:
+            # Call is OTM (strike above stock price)
+            moneyness_pct = ((pos['strike'] - current_price) / current_price) * 100
+            moneyness_status = "OTM"
+        else:
+            # Call is ITM (strike below stock price)
+            moneyness_pct = ((current_price - pos['strike']) / current_price) * 100
+            moneyness_status = "ITM"
+    else:  # PUT
+        if pos['strike'] < current_price:
+            # Put is OTM (strike below stock price)
+            moneyness_pct = ((current_price - pos['strike']) / current_price) * 100
+            moneyness_status = "OTM"
+        else:
+            # Put is ITM (strike above stock price)
+            moneyness_pct = ((pos['strike'] - current_price) / current_price) * 100
+            moneyness_status = "ITM"
     
     stock_change = ((current_price - pos['entry_price']) / pos['entry_price']) * 100
     
@@ -681,8 +801,7 @@ def render_position_details(pos, index):
     with col2:
         st.metric("Days Held", f"{days_held} days", f"{dte_remaining}d DTE left")
     with col3:
-        moneyness_label = "OTM" if moneyness_pct > 0 else "ITM"
-        st.metric("Moneyness", f"{abs(moneyness_pct):.1f}% {moneyness_label}")
+        st.metric("Moneyness", f"{moneyness_pct:.1f}% {moneyness_status}")
     with col4:
         if days_held < checkpoints['quick_exit']:
             status = "🟢 On Track"
@@ -722,35 +841,54 @@ def render_position_details(pos, index):
     # Time exit strategy
     st.markdown("### ⏰ Time Exit Strategy")
     st.markdown(f"**Setup Type:** {pos['setup_type']}")
-    st.markdown(f"**Based on {pos['dte_at_entry']} DTE entry:**")
+    st.markdown(f"**Entry:** {pos['dte_at_entry']} DTE | **Current:** {dte_remaining} DTE remaining")
+    
+    # Show theta decay rate at current DTE
+    if dte_remaining > 45:
+        theta_rate = "~1-2%"
+        theta_status = "Low theta decay"
+    elif dte_remaining > 30:
+        theta_rate = "~2-3%"
+        theta_status = "Moderate theta decay"
+    elif dte_remaining > 21:
+        theta_rate = "~3-4%"
+        theta_status = "High theta decay"
+    elif dte_remaining > 14:
+        theta_rate = "~5-7%"
+        theta_status = "⚠️ Rapid theta decay"
+    else:
+        theta_rate = "~8-10%"
+        theta_status = "🔴 Extreme theta decay"
+    
+    st.info(f"📊 Current theta decay: **{theta_rate} per day** ({theta_status})")
     
     st.markdown("")
     
-    # Checkpoint display
+    # Checkpoint display with DTE
     col1, col2, col3 = st.columns(3)
     
     with col1:
         if days_held < checkpoints['quick_exit']:
-            st.markdown(f"<div style='padding:1rem; background:#d4edda; border-left:4px solid #28a745; border-radius:4px;'><b>✅ Day {days_held} (Today)</b><br>Safe Zone - Continue monitoring</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#d4edda; border-left:4px solid #28a745; border-radius:4px;'><b>✅ Day {days_held} (Today)</b><br>{dte_remaining} DTE left<br>Safe Zone - Continue monitoring</div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #6c757d; border-radius:4px;'><b>Day 0-{checkpoints['quick_exit']}</b><br>Safe Zone (passed)</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #6c757d; border-radius:4px;'><b>Day 0-{checkpoints['quick_exit']}</b><br>({checkpoints['dte_thresholds']['quick_exit_dte']}+ DTE)<br>Safe Zone (passed)</div>", unsafe_allow_html=True)
     
     with col2:
         if days_held >= checkpoints['quick_exit'] and days_held < checkpoints['max_hold']:
-            st.markdown(f"<div style='padding:1rem; background:#fff3cd; border-left:4px solid #ffc107; border-radius:4px;'><b>⚠️ Day {days_held} (Today)</b><br>Decision Point - Exit if no R1 progress</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#fff3cd; border-left:4px solid #ffc107; border-radius:4px;'><b>⚠️ Day {days_held} (Today)</b><br>{dte_remaining} DTE left<br>Decision - Exit if no R1 progress</div>", unsafe_allow_html=True)
         elif days_held < checkpoints['quick_exit']:
-            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #ffc107; border-radius:4px;'><b>Day {checkpoints['quick_exit']}</b><br>Decision Point (upcoming)</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #ffc107; border-radius:4px;'><b>Day {checkpoints['quick_exit']}</b><br>({checkpoints['dte_thresholds']['quick_exit_dte']} DTE)<br>Decision Point (upcoming)</div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #6c757d; border-radius:4px;'><b>Day {checkpoints['quick_exit']}</b><br>Decision Point (passed)</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #6c757d; border-radius:4px;'><b>Day {checkpoints['quick_exit']}</b><br>({checkpoints['dte_thresholds']['quick_exit_dte']} DTE)<br>Decision Point (passed)</div>", unsafe_allow_html=True)
     
     with col3:
         if days_held >= checkpoints['max_hold']:
-            st.markdown(f"<div style='padding:1rem; background:#f8d7da; border-left:4px solid #dc3545; border-radius:4px;'><b>🔴 Day {days_held} (Today)</b><br>MAXIMUM HOLD - EXIT NOW!</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#f8d7da; border-left:4px solid #dc3545; border-radius:4px;'><b>🔴 Day {days_held} (Today)</b><br>{dte_remaining} DTE left<br>MAXIMUM HOLD - EXIT NOW!</div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #dc3545; border-radius:4px;'><b>Day {checkpoints['max_hold']}</b><br>Maximum Hold - Exit by this day</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #dc3545; border-radius:4px;'><b>Day {checkpoints['max_hold']}</b><br>({checkpoints['dte_thresholds']['max_hold_dte']} DTE)<br>Maximum Hold - Exit by this day</div>", unsafe_allow_html=True)
     
     st.markdown("")
-    st.markdown(f"<div style='padding:1rem; background:#343a40; color:white; border-left:4px solid #000; border-radius:4px;'><b>💀 Day {checkpoints['theta_warning']}</b><br>Theta Death Zone - Never hold this long</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='padding:1rem; background:#343a40; color:white; border-left:4px solid #000; border-radius:4px;'><b>💀 Day {checkpoints['theta_warning']} ({checkpoints['dte_thresholds']['theta_warning_dte']} DTE)</b><br>Theta Death Zone - Never hold this long (theta ~8-10%/day)</div>", unsafe_allow_html=True)
     
     st.markdown("---")
     
@@ -845,8 +983,27 @@ def main():
     # Disclaimer
     st.warning("⚠️ **This is not financial advice. This is only the display of my personal trading tools.**")
     
-    # Market status notice (using Eastern Time)
-    eastern = timezone(timedelta(hours=-5))
+    # Market status notice (using Eastern Time with DST support)
+    from datetime import timezone as tz
+    import calendar
+    
+    # Simple DST check for US Eastern Time
+    now_utc = datetime.now(tz.utc)
+    year = now_utc.year
+    
+    # DST starts 2nd Sunday in March, ends 1st Sunday in November (US)
+    march = datetime(year, 3, 1, tzinfo=tz.utc)
+    march_second_sunday = march + timedelta(days=(13 - march.weekday()) % 7)
+    november = datetime(year, 11, 1, tzinfo=tz.utc)
+    november_first_sunday = november + timedelta(days=(6 - november.weekday()) % 7)
+    
+    # Determine if DST is active
+    if march_second_sunday <= now_utc < november_first_sunday:
+        eastern_offset = -4  # EDT (daylight time)
+    else:
+        eastern_offset = -5  # EST (standard time)
+    
+    eastern = timezone(timedelta(hours=eastern_offset))
     current_eastern = datetime.now(eastern)
     current_day = current_eastern.weekday()
     current_hour = current_eastern.hour
@@ -1258,9 +1415,32 @@ def main():
                             col1, col2 = st.columns(2)
                             with col1:
                                 entry_date = st.date_input("Entry Date", value=datetime.now())
-                                dte_input = st.number_input("DTE at Entry", min_value=30, max_value=120, value=60, step=5)
+                                
+                                # Strike price input with suggestion
+                                strike_input = st.number_input(
+                                    "Strike Price",
+                                    min_value=1.0,
+                                    value=float(setup['strike']),
+                                    step=0.50 if setup['price'] < 20 else (1.0 if setup['price'] < 100 else 5.0),
+                                    help=f"Suggested: ${setup['strike']} ({setup['option_type']} based on {setup['score']}/6 score)"
+                                )
                             with col2:
+                                # Expiration date input
+                                min_exp = datetime.now() + timedelta(days=30)
+                                default_exp = datetime.now() + timedelta(days=60)
+                                
+                                exp_date_input = st.date_input(
+                                    "Expiration Date",
+                                    value=default_exp,
+                                    min_value=min_exp,
+                                    help="Actual option expiration date"
+                                )
+                                
                                 contracts_input = st.number_input("Number of Contracts", min_value=1, max_value=10, value=1)
+                            
+                            # Calculate DTE from expiration date
+                            dte_calculated = (exp_date_input - entry_date).days
+                            st.caption(f"DTE at Entry: {dte_calculated} days")
                             
                             col1, col2 = st.columns(2)
                             with col1:
@@ -1273,25 +1453,32 @@ def main():
                                 st.rerun()
                             
                             if submit_btn:
-                                new_position = {
-                                    'ticker': setup['ticker'],
-                                    'strike': setup['strike'],
-                                    'option_type': setup['option_type'],
-                                    'entry_date': entry_date.isoformat(),
-                                    'entry_price': setup['price'],
-                                    'dte_at_entry': dte_input,
-                                    'contracts': contracts_input,
-                                    'setup_type': setup['setup_type'],
-                                    'target_r1': setup['target_r1'],
-                                    'target_r2': setup['target_r2'],
-                                    'stop': setup['stop']
-                                }
-                                st.session_state.active_positions.append(new_position)
-                                save_positions(st.session_state.active_positions)
-                                st.session_state[add_key] = False
-                                st.success(f"✅ Added {setup['ticker']} to Active Positions!")
-                                time.sleep(1)
-                                st.rerun()
+                                # Validation
+                                if dte_calculated < 7:
+                                    st.error("⚠️ Expiration must be at least 7 days from entry date")
+                                elif dte_calculated > 365:
+                                    st.error("⚠️ Expiration must be within 1 year")
+                                else:
+                                    new_position = {
+                                        'ticker': setup['ticker'],
+                                        'strike': strike_input,
+                                        'option_type': setup['option_type'],
+                                        'entry_date': entry_date.isoformat(),
+                                        'expiration_date': exp_date_input.isoformat(),
+                                        'entry_price': setup['price'],
+                                        'dte_at_entry': dte_calculated,
+                                        'contracts': contracts_input,
+                                        'setup_type': setup['setup_type'],
+                                        'target_r1': setup['target_r1'],
+                                        'target_r2': setup['target_r2'],
+                                        'stop': setup['stop']
+                                    }
+                                    st.session_state.active_positions.append(new_position)
+                                    save_positions(st.session_state.active_positions)
+                                    st.session_state[add_key] = False
+                                    st.success(f"✅ Added {setup['ticker']} ${strike_input} {setup['option_type']} to Active Positions!")
+                                    time.sleep(1)
+                                    st.rerun()
             
             # Download CSV
             df = pd.DataFrame(filtered_results)
