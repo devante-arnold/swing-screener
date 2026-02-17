@@ -153,52 +153,109 @@ class SwingScreener:
             sp500_tickers = [t.replace('.', '-') for t in sp500_tickers]
             
         except:
-            # Fallback to major S&P 500 stocks if Wikipedia fails
+            # Fallback to comprehensive S&P 500 list if Wikipedia fails
             sp500_tickers = [
-                'AAPL', 'MSFT', 'NVDA', 'GOOGL', 'GOOG', 'META', 'AVGO', 'ORCL', 'CSCO', 'ADBE',
-                'CRM', 'AMD', 'INTC', 'IBM', 'QCOM', 'TXN', 'AMAT', 'MU', 'LRCX', 'KLAC',
-                'SNPS', 'CDNS', 'MCHP', 'ADI', 'NXPI', 'PANW', 'PLTR', 'NOW', 'TEAM', 'WDAY',
+                # Technology
+                'AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'CSCO', 'ADBE', 'CRM', 'AMD', 'INTC',
+                'IBM', 'QCOM', 'TXN', 'AMAT', 'MU', 'LRCX', 'KLAC', 'SNPS', 'CDNS', 'MCHP',
+                'ADI', 'NXPI', 'PANW', 'NOW', 'INTU', 'ADP', 'WDAY', 'ANSS', 'FTNT', 'CRWD',
+                'ZS', 'DDOG', 'HUBS', 'DOCU', 'OKTA', 'TWLO', 'SPLK', 'GLPI', 'FFIV', 'JNPR',
+                'NTAP', 'AKAM', 'ENPH', 'SEDG', 'GLW', 'HPQ', 'HPE', 'WDC', 'STX', 'ANET',
+                
+                # Consumer Discretionary
                 'AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'LOW', 'TJX', 'BKNG', 'ABNB',
-                'GM', 'F', 'MAR', 'CMG', 'ORLY', 'YUM', 'DHI', 'LEN', 'DG', 'ROST',
+                'MAR', 'CMG', 'ORLY', 'YUM', 'DHI', 'LEN', 'DG', 'ROST', 'ULTA', 'AZO',
+                'BBY', 'DPZ', 'POOL', 'WHR', 'TPR', 'RL', 'GM', 'F', 'HLT', 'EXPE',
+                'GPC', 'AAP', 'APTV', 'BWA', 'NVR', 'PHM', 'TOL', 'DRI', 'DECK', 'LVS',
+                
+                # Communication Services
+                'GOOGL', 'GOOG', 'META', 'NFLX', 'DIS', 'CMCSA', 'T', 'VZ', 'TMUS', 'CHTR',
+                'EA', 'TTWO', 'MTCH', 'PINS', 'SNAP', 'ROKU', 'SPOT', 'RBLX', 'WBD', 'PARA',
+                'FOX', 'FOXA', 'OMC', 'IPG', 'LYV', 'NYT', 'GSAT', 'SIRI', 'DISH', 'TRIP',
+                
+                # Healthcare
                 'UNH', 'JNJ', 'LLY', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'PFE', 'BMY',
                 'AMGN', 'GILD', 'CVS', 'CI', 'ISRG', 'REGN', 'VRTX', 'ZTS', 'HCA', 'BSX',
+                'MDT', 'SYK', 'ELV', 'IDXX', 'IQV', 'DGX', 'BDX', 'EW', 'RMD', 'MTD',
+                'ALGN', 'HOLX', 'PODD', 'DXCM', 'TECH', 'STE', 'MRNA', 'BNTX', 'NVAX', 'BIIB',
+                'ILMN', 'EXAS', 'INCY', 'ALNY', 'BGNE', 'SGEN', 'JAZZ', 'UTHR', 'SRPT', 'BMRN',
+                'MOH', 'CNC', 'HUM', 'CRL', 'LH', 'WST', 'WAT', 'PKI', 'A', 'COO',
+                'BAX', 'XRAY', 'ZBH', 'VTRS', 'TEVA', 'PRGO', 'CAH', 'MCK', 'COR', 'SOLV',
+                
+                # Financials
                 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'BLK', 'SPGI', 'C',
                 'SCHW', 'AXP', 'CB', 'PGR', 'MMC', 'ICE', 'CME', 'AON', 'USB', 'TFC',
-                'NFLX', 'DIS', 'CMCSA', 'T', 'VZ', 'TMUS', 'CHTR', 'EA', 'TTWO', 'MTCH',
+                'PNC', 'COF', 'BK', 'AIG', 'MET', 'PRU', 'AFL', 'ALL', 'TRV', 'AJG',
+                'HIG', 'CINF', 'WRB', 'GL', 'RJF', 'BEN', 'TROW', 'IVZ', 'NTRS', 'STT',
+                'FITB', 'HBAN', 'RF', 'CFG', 'KEY', 'MTB', 'ZION', 'CMA', 'MCO', 'MSCI',
+                'NDAQ', 'CBOE', 'MKTX', 'LPLA', 'IBKR', 'RE', 'ACGL', 'RNR', 'ERIE', 'FAF',
+                
+                # Consumer Staples
                 'WMT', 'PG', 'COST', 'KO', 'PEP', 'PM', 'MO', 'MDLZ', 'CL', 'KMB',
                 'GIS', 'K', 'HSY', 'SYY', 'KHC', 'STZ', 'TAP', 'CPB', 'CAG', 'SJM',
+                'MKC', 'CHD', 'CLX', 'TSN', 'HRL', 'KR', 'TGT', 'DLTR', 'BJ', 'CASY',
+                'ACI', 'KDP', 'MNST', 'CELH', 'BUD', 'SAM', 'DAR', 'ADM', 'BG', 'CALM',
+                
+                # Industrials
                 'BA', 'CAT', 'UNP', 'HON', 'UPS', 'RTX', 'LMT', 'GE', 'MMM', 'DE',
                 'GD', 'NOC', 'FDX', 'NSC', 'CSX', 'EMR', 'ETN', 'ITW', 'PH', 'CMI',
+                'WM', 'RSG', 'FAST', 'PCAR', 'ODFL', 'JBHT', 'CHRW', 'EXPD', 'XPO', 'R',
+                'IR', 'CARR', 'OTIS', 'PWR', 'GNRC', 'AOS', 'DOV', 'FTV', 'ROK', 'AME',
+                'TXT', 'LHX', 'LDOS', 'HII', 'TDG', 'AXON', 'TDY', 'ROP', 'SWK', 'SNA',
+                'JCI', 'TT', 'BLDR', 'MLI', 'VMC', 'SAIA', 'MATX', 'LSTR', 'GWW', 'HUBG',
+                
+                # Energy
                 'XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PSX', 'VLO', 'OXY', 'HAL',
                 'KMI', 'WMB', 'DVN', 'HES', 'FANG', 'BKR', 'TRGP', 'OKE', 'APA', 'MRO',
+                'CTRA', 'EQT', 'OVV', 'PR', 'MTDR', 'MGY', 'SM', 'RRC', 'AR', 'CLR',
+                'PXD', 'VNOM', 'MUR', 'DINO', 'ECA', 'CHK', 'RIG', 'VAL', 'NOV', 'HP',
+                
+                # Materials
                 'LIN', 'APD', 'SHW', 'ECL', 'NEM', 'FCX', 'DOW', 'DD', 'PPG', 'NUE',
+                'STLD', 'VMC', 'MLM', 'CF', 'MOS', 'ALB', 'CE', 'FMC', 'EMN', 'IFF',
+                'LYB', 'AVY', 'BALL', 'PKG', 'IP', 'SEE', 'WRK', 'SON', 'AMCR', 'CCK',
+                'MP', 'X', 'CLF', 'AA', 'CENX', 'TMST', 'SXC', 'CSTM', 'TROX', 'ATI',
+                
+                # Utilities
                 'NEE', 'SO', 'DUK', 'D', 'AEP', 'EXC', 'SRE', 'XEL', 'PEG', 'ED',
-                'PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'O', 'WELL', 'DLR', 'SBAC', 'AVB'
+                'WEC', 'ES', 'DTE', 'ETR', 'FE', 'EIX', 'PPL', 'CMS', 'CNP', 'NI',
+                'PCG', 'VST', 'CEG', 'AWK', 'ATO', 'CWT', 'AWR', 'SJW', 'LNT', 'NWE',
+                'OGE', 'PNW', 'AVA', 'BKH', 'SR', 'AGR', 'NJR', 'SWX', 'MGEE', 'UTL',
+                
+                # Real Estate
+                'PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'O', 'WELL', 'DLR', 'SBAC', 'AVB',
+                'EQR', 'VTR', 'ARE', 'INVH', 'MAA', 'UDR', 'ESS', 'EXR', 'CPT', 'CBRE',
+                'SPG', 'VICI', 'KIM', 'REG', 'BXP', 'VNO', 'HST', 'RHP', 'PEAK', 'AMH',
+                'SUI', 'CUBE', 'FR', 'IRM', 'REXR', 'NSA', 'STAG', 'TRNO', 'SAFE', 'COLD'
             ]
         
         try:
             # Get NASDAQ-100 tickers
             nasdaq100_url = 'https://en.wikipedia.org/wiki/NASDAQ-100'
-            nasdaq100_table = pd.read_html(nasdaq100_url)[4]  # Table 4 contains the tickers
+            nasdaq100_table = pd.read_html(nasdaq100_url)[4]
             nasdaq100_tickers = nasdaq100_table['Ticker'].tolist()
             nasdaq100_tickers = [t.replace('.', '-') for t in nasdaq100_tickers]
         except:
-            # Fallback NASDAQ major stocks
+            # Fallback NASDAQ-100 stocks (not already in S&P 500 above)
             nasdaq100_tickers = [
-                'INTU', 'BKNG', 'ADP', 'VRTX', 'SBUX', 'GILD', 'ADI', 'REGN', 'LRCX', 'MDLZ',
-                'PANW', 'MU', 'PYPL', 'KLAC', 'SNPS', 'CDNS', 'MELI', 'ASML', 'ABNB', 'CHTR',
-                'CTAS', 'MAR', 'ORLY', 'AZN', 'CRWD', 'FTNT', 'CSX', 'NXPI', 'PCAR', 'MRVL',
-                'MNST', 'WDAY', 'ADSK', 'DASH', 'CPRT', 'PAYX', 'ROST', 'ODFL', 'KDP', 'FAST',
-                'VRSK', 'CTSH', 'EA', 'GEHC', 'LULU', 'DDOG', 'IDXX', 'XEL', 'EXC', 'ON',
-                'TEAM', 'ANSS', 'CSGP', 'ZS', 'DXCM', 'TTWO', 'BIIB', 'ILMN', 'WBD', 'MDB', 'ZM', 'MRNA'
+                'MELI', 'ASML', 'CTAS', 'DASH', 'CPRT', 'PAYX', 'VRSK', 'CTSH', 'GEHC',
+                'LULU', 'ON', 'CSGP', 'ADSK', 'MRVL', 'PDD', 'BIDU', 'JD', 'NTES',
+                'ZTO', 'BILI', 'BABA', 'LI', 'XPEV', 'TCOM', 'NDAQ', 'VRSN', 'CCEP',
+                'CPNG', 'FANG', 'RIVN', 'TTWO', 'FSLR', 'EBAY', 'LCID', 'WBA', 'ZM',
+                'GFS', 'SMCI', 'ARM', 'HOOD', 'COIN', 'SNOW', 'NET', 'U', 'SHOP',
+                'SQ', 'PYPL', 'AFRM', 'UPST', 'SOFI', 'NU', 'CVNA', 'W', 'BYND',
+                'SPCE', 'DKNG', 'TLRY', 'SNDL', 'CLOV', 'WISH', 'BB', 'NOK', 'SAVA'
             ]
         
         # Additional active traders and popular options stocks
         active_traders = [
-            'SPY', 'QQQ', 'IWM', 'SMH', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLP',
-            'SOFI', 'PLTR', 'NIO', 'RIVN', 'COIN', 'RBLX', 'SNOW', 'NET',
-            'SHOP', 'SQ', 'UBER', 'LYFT', 'PINS', 'SNAP', 'ROKU', 'ARKK', 'GME', 'AMC', 'PLUG',
-            'HOOD', 'LCID', 'UPST', 'AFRM', 'CVNA', 'W', 'BYND', 'SPCE', 'DKNG', 'TLRY'
+            # Major ETFs
+            'SPY', 'QQQ', 'IWM', 'DIA', 'SMH', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI',
+            'XLP', 'XLU', 'XLB', 'XLY', 'XLRE', 'XLC', 'VTI', 'VOO', 'VEA', 'VWO',
+            
+            # Popular options stocks & meme stocks
+            'PLTR', 'NIO', 'RBLX', 'GME', 'AMC', 'PLUG', 'WKHS', 'CLNE', 'ATER',
+            'BBIG', 'PROG', 'CEI', 'EXPR', 'ARKK', 'ARKG', 'ARKF', 'ARKW', 'ARKQ'
         ]
         
         # Combine and deduplicate
