@@ -138,42 +138,77 @@ class SwingScreener:
         self.confluence_threshold = confluence_threshold
         
     def get_market_tickers(self) -> List[str]:
-        sp500_major = [
-            'AAPL', 'MSFT', 'NVDA', 'GOOGL', 'GOOG', 'META', 'AVGO', 'ORCL', 'CSCO', 'ADBE',
-            'CRM', 'AMD', 'INTC', 'IBM', 'QCOM', 'TXN', 'AMAT', 'MU', 'LRCX', 'KLAC',
-            'SNPS', 'CDNS', 'MCHP', 'ADI', 'NXPI', 'PANW', 'PLTR', 'NOW', 'TEAM', 'WDAY',
-            'AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'LOW', 'TJX', 'BKNG', 'ABNB',
-            'GM', 'F', 'MAR', 'CMG', 'ORLY', 'YUM', 'DHI', 'LEN', 'DG', 'ROST',
-            'UNH', 'JNJ', 'LLY', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'PFE', 'BMY',
-            'AMGN', 'GILD', 'CVS', 'CI', 'ISRG', 'REGN', 'VRTX', 'ZTS', 'HCA', 'BSX',
-            'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'BLK', 'SPGI', 'C',
-            'SCHW', 'AXP', 'CB', 'PGR', 'MMC', 'ICE', 'CME', 'AON', 'USB', 'TFC',
-            'NFLX', 'DIS', 'CMCSA', 'T', 'VZ', 'TMUS', 'CHTR', 'EA', 'TTWO', 'MTCH',
-            'WMT', 'PG', 'COST', 'KO', 'PEP', 'PM', 'MO', 'MDLZ', 'CL', 'KMB',
-            'GIS', 'K', 'HSY', 'SYY', 'KHC', 'STZ', 'TAP', 'CPB', 'CAG', 'SJM',
-            'BA', 'CAT', 'UNP', 'HON', 'UPS', 'RTX', 'LMT', 'GE', 'MMM', 'DE',
-            'GD', 'NOC', 'FDX', 'NSC', 'CSX', 'EMR', 'ETN', 'ITW', 'PH', 'CMI',
-            'XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PSX', 'VLO', 'OXY', 'HAL',
-            'KMI', 'WMB', 'DVN', 'HES', 'FANG', 'BKR', 'TRGP', 'OKE', 'APA', 'MRO',
-            'LIN', 'APD', 'SHW', 'ECL', 'NEM', 'FCX', 'DOW', 'DD', 'PPG', 'NUE',
-            'NEE', 'SO', 'DUK', 'D', 'AEP', 'EXC', 'SRE', 'XEL', 'PEG', 'ED',
-            'PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'O', 'WELL', 'DLR', 'SBAC', 'AVB'
-        ]
+        """
+        Get comprehensive ticker list from S&P 500, NASDAQ-100, and active traders
+        Total: ~700+ stocks
+        """
+        try:
+            # Get S&P 500 tickers from Wikipedia (most reliable free source)
+            import pandas as pd
+            sp500_url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+            sp500_table = pd.read_html(sp500_url)[0]
+            sp500_tickers = sp500_table['Symbol'].tolist()
+            
+            # Clean tickers (remove dots that Wikipedia sometimes adds)
+            sp500_tickers = [t.replace('.', '-') for t in sp500_tickers]
+            
+        except:
+            # Fallback to major S&P 500 stocks if Wikipedia fails
+            sp500_tickers = [
+                'AAPL', 'MSFT', 'NVDA', 'GOOGL', 'GOOG', 'META', 'AVGO', 'ORCL', 'CSCO', 'ADBE',
+                'CRM', 'AMD', 'INTC', 'IBM', 'QCOM', 'TXN', 'AMAT', 'MU', 'LRCX', 'KLAC',
+                'SNPS', 'CDNS', 'MCHP', 'ADI', 'NXPI', 'PANW', 'PLTR', 'NOW', 'TEAM', 'WDAY',
+                'AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'LOW', 'TJX', 'BKNG', 'ABNB',
+                'GM', 'F', 'MAR', 'CMG', 'ORLY', 'YUM', 'DHI', 'LEN', 'DG', 'ROST',
+                'UNH', 'JNJ', 'LLY', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'PFE', 'BMY',
+                'AMGN', 'GILD', 'CVS', 'CI', 'ISRG', 'REGN', 'VRTX', 'ZTS', 'HCA', 'BSX',
+                'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'BLK', 'SPGI', 'C',
+                'SCHW', 'AXP', 'CB', 'PGR', 'MMC', 'ICE', 'CME', 'AON', 'USB', 'TFC',
+                'NFLX', 'DIS', 'CMCSA', 'T', 'VZ', 'TMUS', 'CHTR', 'EA', 'TTWO', 'MTCH',
+                'WMT', 'PG', 'COST', 'KO', 'PEP', 'PM', 'MO', 'MDLZ', 'CL', 'KMB',
+                'GIS', 'K', 'HSY', 'SYY', 'KHC', 'STZ', 'TAP', 'CPB', 'CAG', 'SJM',
+                'BA', 'CAT', 'UNP', 'HON', 'UPS', 'RTX', 'LMT', 'GE', 'MMM', 'DE',
+                'GD', 'NOC', 'FDX', 'NSC', 'CSX', 'EMR', 'ETN', 'ITW', 'PH', 'CMI',
+                'XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PSX', 'VLO', 'OXY', 'HAL',
+                'KMI', 'WMB', 'DVN', 'HES', 'FANG', 'BKR', 'TRGP', 'OKE', 'APA', 'MRO',
+                'LIN', 'APD', 'SHW', 'ECL', 'NEM', 'FCX', 'DOW', 'DD', 'PPG', 'NUE',
+                'NEE', 'SO', 'DUK', 'D', 'AEP', 'EXC', 'SRE', 'XEL', 'PEG', 'ED',
+                'PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'O', 'WELL', 'DLR', 'SBAC', 'AVB'
+            ]
         
-        nasdaq_major = [
-            'INTU', 'BKNG', 'ADP', 'VRTX', 'SBUX', 'GILD', 'ADI', 'REGN', 'LRCX', 'MDLZ',
-            'PANW', 'MU', 'PYPL', 'KLAC', 'SNPS', 'CDNS', 'MELI', 'ASML', 'ABNB', 'CHTR',
-            'CTAS', 'MAR', 'ORLY', 'AZN', 'CRWD', 'FTNT', 'CSX', 'NXPI', 'PCAR', 'MRVL',
-            'MNST', 'WDAY', 'ADSK', 'DASH', 'CPRT', 'PAYX', 'ROST', 'ODFL', 'KDP', 'FAST',
-            'VRSK', 'CTSH', 'EA', 'GEHC', 'LULU', 'DDOG', 'IDXX', 'XEL', 'EXC', 'ON',
-            'TEAM', 'ANSS', 'CSGP', 'ZS', 'DXCM', 'TTWO', 'BIIB', 'ILMN', 'WBD', 'MDB', 'ZM', 'MRNA'
-        ]
+        try:
+            # Get NASDAQ-100 tickers
+            nasdaq100_url = 'https://en.wikipedia.org/wiki/NASDAQ-100'
+            nasdaq100_table = pd.read_html(nasdaq100_url)[4]  # Table 4 contains the tickers
+            nasdaq100_tickers = nasdaq100_table['Ticker'].tolist()
+            nasdaq100_tickers = [t.replace('.', '-') for t in nasdaq100_tickers]
+        except:
+            # Fallback NASDAQ major stocks
+            nasdaq100_tickers = [
+                'INTU', 'BKNG', 'ADP', 'VRTX', 'SBUX', 'GILD', 'ADI', 'REGN', 'LRCX', 'MDLZ',
+                'PANW', 'MU', 'PYPL', 'KLAC', 'SNPS', 'CDNS', 'MELI', 'ASML', 'ABNB', 'CHTR',
+                'CTAS', 'MAR', 'ORLY', 'AZN', 'CRWD', 'FTNT', 'CSX', 'NXPI', 'PCAR', 'MRVL',
+                'MNST', 'WDAY', 'ADSK', 'DASH', 'CPRT', 'PAYX', 'ROST', 'ODFL', 'KDP', 'FAST',
+                'VRSK', 'CTSH', 'EA', 'GEHC', 'LULU', 'DDOG', 'IDXX', 'XEL', 'EXC', 'ON',
+                'TEAM', 'ANSS', 'CSGP', 'ZS', 'DXCM', 'TTWO', 'BIIB', 'ILMN', 'WBD', 'MDB', 'ZM', 'MRNA'
+            ]
         
-        active_traders = ['SPY', 'QQQ', 'IWM', 'SMH', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLP',
+        # Additional active traders and popular options stocks
+        active_traders = [
+            'SPY', 'QQQ', 'IWM', 'SMH', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLP',
             'SOFI', 'PLTR', 'NIO', 'RIVN', 'COIN', 'RBLX', 'SNOW', 'NET',
-            'SHOP', 'SQ', 'UBER', 'LYFT', 'PINS', 'SNAP', 'ROKU', 'ARKK', 'GME', 'AMC', 'PLUG']
+            'SHOP', 'SQ', 'UBER', 'LYFT', 'PINS', 'SNAP', 'ROKU', 'ARKK', 'GME', 'AMC', 'PLUG',
+            'HOOD', 'LCID', 'UPST', 'AFRM', 'CVNA', 'W', 'BYND', 'SPCE', 'DKNG', 'TLRY'
+        ]
         
-        return list(set(sp500_major + nasdaq_major + active_traders))
+        # Combine and deduplicate
+        all_tickers = list(set(sp500_tickers + nasdaq100_tickers + active_traders))
+        
+        # Remove any problematic tickers
+        exclude = ['BRK.B', 'BF.B']  # Tickers with dots that cause issues
+        all_tickers = [t for t in all_tickers if t not in exclude]
+        
+        return all_tickers
     
     def calculate_pivot_points(self, high, low, close):
         pivot = (high + low + close) / 3
