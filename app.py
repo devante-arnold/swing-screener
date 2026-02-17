@@ -155,113 +155,51 @@ class SwingScreener:
         except:
             # Fallback to major S&P 500 stocks if Wikipedia fails
             sp500_tickers = [
-    # Technology (100+)
-    'AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'CSCO', 'ADBE', 'CRM', 'AMD', 'INTC',
-    'IBM', 'QCOM', 'TXN', 'AMAT', 'MU', 'LRCX', 'KLAC', 'SNPS', 'CDNS', 'MCHP',
-    'ADI', 'NXPI', 'PANW', 'NOW', 'INTU', 'ADP', 'WDAY', 'ANSS', 'FTNT', 'CRWD',
-    'ZS', 'DDOG', 'HUBS', 'DOCU', 'OKTA', 'TWLO', 'SPLK', 'GLPI', 'CTXS', 'FFIV',
-    'JNPR', 'NTAP', 'AKAM', 'RNG', 'CIEN', 'ENPH', 'SEDG', 'GNRC', 'TER', 'KEYS',
-    'GLW', 'HPQ', 'HPE', 'DELL', 'WDC', 'STX', 'SMCI', 'ANET', 'ZBRA', 'FICO',
-    
-    # Consumer Discretionary (80+)
-    'AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'LOW', 'TJX', 'BKNG', 'ABNB',
-    'MAR', 'CMG', 'ORLY', 'YUM', 'DHI', 'LEN', 'DG', 'ROST', 'ULTA', 'AZO',
-    'BBY', 'DPZ', 'POOL', 'WHR', 'TPR', 'RL', 'UAA', 'HAS', 'MAT', 'DECK',
-    'GM', 'F', 'HLT', 'EXPE', 'NCLH', 'CCL', 'RCL', 'LVS', 'WYNN', 'MGM',
-    'GPC', 'AAP', 'APTV', 'BWA', 'LEG', 'MHK', 'NVR', 'PHM', 'TOL', 'KBH',
-    'DRI', 'EAT', 'QSR', 'MCD', 'WEN', 'JACK', 'DNUT', 'BROS', 'CAVA', 'SHAK',
-    
-    # Communication Services (40+)
-    'GOOGL', 'GOOG', 'META', 'NFLX', 'DIS', 'CMCSA', 'T', 'VZ', 'TMUS', 'CHTR',
-    'EA', 'TTWO', 'ATVI', 'MTCH', 'PINS', 'SNAP', 'ROKU', 'SPOT', 'RBLX', 'U',
-    'WBD', 'PARA', 'FOX', 'FOXA', 'OMC', 'IPG', 'NWSA', 'NWS', 'LYV', 'MSGS',
-    'NYT', 'GSAT', 'SIRI', 'DISH', 'LBRDA', 'LBRDK', 'TRIP', 'TDS', 'CABO', 'YELP',
-    
-    # Healthcare (100+)
-    'UNH', 'JNJ', 'LLY', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'PFE', 'BMY',
-    'AMGN', 'GILD', 'CVS', 'CI', 'ISRG', 'REGN', 'VRTX', 'ZTS', 'HCA', 'BSX',
-    'MDT', 'SYK', 'ELV', 'IDXX', 'IQV', 'DGX', 'BDX', 'EW', 'RMD', 'MTD',
-    'ALGN', 'HOLX', 'PODD', 'DXCM', 'TECH', 'TFX', 'STE', 'MRNA', 'BNTX', 'NVAX',
-    'BIIB', 'ILMN', 'EXAS', 'INCY', 'ALNY', 'BGNE', 'SGEN', 'JAZZ', 'UTHR', 'SRPT',
-    'RGEN', 'BMRN', 'RARE', 'VRTX', 'IONS', 'ARWR', 'ACAD', 'KRYS', 'ARCT', 'CVAC',
-    'MOH', 'CNC', 'HUM', 'ANTM', 'CRL', 'LH', 'WST', 'WAT', 'PKI', 'A',
-    'COO', 'BAX', 'XRAY', 'ENOV', 'SOLV', 'HAE', 'VTRS', 'TEVA', 'ZBH', 'PRGO',
-    
-    # Financials (80+)
-    'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'BLK', 'SPGI', 'C',
-    'SCHW', 'AXP', 'CB', 'PGR', 'MMC', 'ICE', 'CME', 'AON', 'USB', 'TFC',
-    'PNC', 'COF', 'BK', 'AIG', 'MET', 'PRU', 'AFL', 'ALL', 'TRV', 'AJG',
-    'HIG', 'CINF', 'WRB', 'GL', 'RJF', 'BEN', 'TROW', 'IVZ', 'NTRS', 'STT',
-    'FITB', 'HBAN', 'RF', 'CFG', 'KEY', 'MTB', 'ZION', 'FRC', 'CMA', 'SIVB',
-    'MCO', 'MSCI', 'NDAQ', 'CBOE', 'MKTX', 'VIRT', 'LPLA', 'IBKR', 'VCTR', 'OPY',
-    'RE', 'ACGL', 'RNR', 'ERIE', 'SIGI', 'THG', 'Y', 'FAF', 'FNF', 'NMIH',
-    
-    # Consumer Staples (50+)
-    'WMT', 'PG', 'COST', 'KO', 'PEP', 'PM', 'MO', 'MDLZ', 'CL', 'KMB',
-    'GIS', 'K', 'HSY', 'SYY', 'KHC', 'STZ', 'TAP', 'CPB', 'CAG', 'SJM',
-    'MKC', 'CHD', 'CLX', 'TSN', 'HRL', 'KR', 'SFM', 'GO', 'TGT', 'DLTR',
-    'DG', 'BJ', 'CASY', 'ACI', 'KDP', 'MNST', 'CELH', 'FIZZ', 'COKE', 'KOF',
-    'BUD', 'SAM', 'BREW', 'HEINY', 'WEST', 'DAR', 'ADM', 'BG', 'CALM', 'CHEF',
-    
-    # Industrials (80+)
-    'BA', 'CAT', 'UNP', 'HON', 'UPS', 'RTX', 'LMT', 'GE', 'MMM', 'DE',
-    'GD', 'NOC', 'FDX', 'NSC', 'CSX', 'EMR', 'ETN', 'ITW', 'PH', 'CMI',
-    'WM', 'RSG', 'FAST', 'PCAR', 'ODFL', 'JBHT', 'CHRW', 'EXPD', 'XPO', 'R',
-    'IR', 'CARR', 'OTIS', 'PWR', 'GNRC', 'AOS', 'DOV', 'FTV', 'ROK', 'AME',
-    'TXT', 'LHX', 'LDOS', 'HII', 'SPR', 'HWM', 'TDG', 'AXON', 'TDY', 'ROP',
-    'SWK', 'SNA', 'NDSN', 'PNR', 'HUBB', 'JCI', 'TT', 'BLDR', 'MLI', 'VMC',
-    'SAIA', 'MATX', 'SNDR', 'KEX', 'WERN', 'LSTR', 'ARCB', 'TRN', 'CVCO', 'GWW',
-    
-    # Energy (40+)
-    'XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PSX', 'VLO', 'OXY', 'HAL',
-    'KMI', 'WMB', 'DVN', 'HES', 'FANG', 'BKR', 'TRGP', 'OKE', 'APA', 'MRO',
-    'CTRA', 'EQT', 'OVV', 'PR', 'MTDR', 'MGY', 'SM', 'RRC', 'CHRD', 'NOG',
-    'AR', 'CLR', 'PXD', 'VNOM', 'MUR', 'DINO', 'ECA', 'CHK', 'RIG', 'VAL',
-    
-    # Materials (40+)
-    'LIN', 'APD', 'SHW', 'ECL', 'NEM', 'FCX', 'DOW', 'DD', 'PPG', 'NUE',
-    'STLD', 'VMC', 'MLM', 'CF', 'MOS', 'ALB', 'CE', 'FMC', 'EMN', 'IFF',
-    'LYB', 'AVY', 'BALL', 'PKG', 'IP', 'SEE', 'WRK', 'SON', 'AMCR', 'CCK',
-    'MP', 'X', 'CLF', 'AA', 'CENX', 'ZEUS', 'TMST', 'SXC', 'CSTM', 'TROX',
-    
-    # Utilities (40+)
-    'NEE', 'SO', 'DUK', 'D', 'AEP', 'EXC', 'SRE', 'XEL', 'PEG', 'ED',
-    'WEC', 'ES', 'DTE', 'ETR', 'FE', 'EIX', 'PPL', 'CMS', 'CNP', 'NI',
-    'PCG', 'VST', 'CEG', 'AWK', 'ATO', 'CWT', 'AWR', 'SJW', 'YORW', 'MSEX',
-    'LNT', 'NWE', 'OGE', 'PNW', 'ORA', 'BKH', 'SR', 'AVA', 'AGR', 'NJR',
-    
-    # Real Estate (40+)
-    'PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'O', 'WELL', 'DLR', 'SBAC', 'AVB',
-    'EQR', 'VTR', 'ARE', 'INVH', 'MAA', 'UDR', 'ESS', 'EXR', 'CPT', 'CBRE',
-    'SPG', 'VICI', 'KIM', 'REG', 'BXP', 'VNO', 'SLG', 'HST', 'RHP', 'PEAK',
-    'AMH', 'SUI', 'CUBE', 'FR', 'IRM', 'REXR', 'NSA', 'STAG', 'TRNO', 'SAFE'
-]
+                'AAPL', 'MSFT', 'NVDA', 'GOOGL', 'GOOG', 'META', 'AVGO', 'ORCL', 'CSCO', 'ADBE',
+                'CRM', 'AMD', 'INTC', 'IBM', 'QCOM', 'TXN', 'AMAT', 'MU', 'LRCX', 'KLAC',
+                'SNPS', 'CDNS', 'MCHP', 'ADI', 'NXPI', 'PANW', 'PLTR', 'NOW', 'TEAM', 'WDAY',
+                'AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'LOW', 'TJX', 'BKNG', 'ABNB',
+                'GM', 'F', 'MAR', 'CMG', 'ORLY', 'YUM', 'DHI', 'LEN', 'DG', 'ROST',
+                'UNH', 'JNJ', 'LLY', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'PFE', 'BMY',
+                'AMGN', 'GILD', 'CVS', 'CI', 'ISRG', 'REGN', 'VRTX', 'ZTS', 'HCA', 'BSX',
+                'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'BLK', 'SPGI', 'C',
+                'SCHW', 'AXP', 'CB', 'PGR', 'MMC', 'ICE', 'CME', 'AON', 'USB', 'TFC',
+                'NFLX', 'DIS', 'CMCSA', 'T', 'VZ', 'TMUS', 'CHTR', 'EA', 'TTWO', 'MTCH',
+                'WMT', 'PG', 'COST', 'KO', 'PEP', 'PM', 'MO', 'MDLZ', 'CL', 'KMB',
+                'GIS', 'K', 'HSY', 'SYY', 'KHC', 'STZ', 'TAP', 'CPB', 'CAG', 'SJM',
+                'BA', 'CAT', 'UNP', 'HON', 'UPS', 'RTX', 'LMT', 'GE', 'MMM', 'DE',
+                'GD', 'NOC', 'FDX', 'NSC', 'CSX', 'EMR', 'ETN', 'ITW', 'PH', 'CMI',
+                'XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PSX', 'VLO', 'OXY', 'HAL',
+                'KMI', 'WMB', 'DVN', 'HES', 'FANG', 'BKR', 'TRGP', 'OKE', 'APA', 'MRO',
+                'LIN', 'APD', 'SHW', 'ECL', 'NEM', 'FCX', 'DOW', 'DD', 'PPG', 'NUE',
+                'NEE', 'SO', 'DUK', 'D', 'AEP', 'EXC', 'SRE', 'XEL', 'PEG', 'ED',
+                'PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'O', 'WELL', 'DLR', 'SBAC', 'AVB'
+            ]
         
         try:
-            nasdaq100_add = [
-    'MELI', 'ASML', 'CTAS', 'DASH', 'CPRT', 'PAYX', 'VRSK', 'CTSH', 'GEHC',
-    'LULU', 'ON', 'CSGP', 'MNST', 'ADSK', 'KDP', 'MRVL', 'PDD', 'BIDU', 'JD',
-    'NTES', 'ZTO', 'BILI', 'BABA', 'LI', 'XPEV', 'TCOM', 'WB', 'NDAQ', 'VRSN',
-    'CCEP', 'CPNG', 'CEG', 'FANG', 'RIVN', 'PCAR', 'TTWO', 'ZS', 'DXCM', 'AEP',
-    'ROST', 'ODFL', 'FAST', 'DLTR', 'SGEN', 'BKR', 'CSGP', 'FSLR', 'EBAY', 'SIRI',
-    'MRNA', 'LCID', 'WBA', 'ENPH', 'XEL', 'MTCH', 'PARA', 'ZM', 'ALGN', 'GFS',
-    'SMCI', 'ARM', 'HOOD', 'COIN', 'RBLX', 'SNOW', 'DDOG', 'NET', 'U', 'ABNB',
-    'DASH', 'UBER', 'LYFT', 'SHOP', 'SQ', 'PYPL', 'AFRM', 'UPST', 'SOFI', 'NU',
-    'CVNA', 'W', 'BYND', 'SPCE', 'DKNG', 'TLRY', 'SNDL', 'CLOV', 'WISH', 'BB',
-    'NOK', 'SAVA', 'WKHS', 'CLNE', 'ATER', 'BBIG', 'PROG', 'CEI', 'EXPR', 'CTRM'
-]
+            # Get NASDAQ-100 tickers
+            nasdaq100_url = 'https://en.wikipedia.org/wiki/NASDAQ-100'
+            nasdaq100_table = pd.read_html(nasdaq100_url)[4]  # Table 4 contains the tickers
+            nasdaq100_tickers = nasdaq100_table['Ticker'].tolist()
+            nasdaq100_tickers = [t.replace('.', '-') for t in nasdaq100_tickers]
+        except:
+            # Fallback NASDAQ major stocks
+            nasdaq100_tickers = [
+                'INTU', 'BKNG', 'ADP', 'VRTX', 'SBUX', 'GILD', 'ADI', 'REGN', 'LRCX', 'MDLZ',
+                'PANW', 'MU', 'PYPL', 'KLAC', 'SNPS', 'CDNS', 'MELI', 'ASML', 'ABNB', 'CHTR',
+                'CTAS', 'MAR', 'ORLY', 'AZN', 'CRWD', 'FTNT', 'CSX', 'NXPI', 'PCAR', 'MRVL',
+                'MNST', 'WDAY', 'ADSK', 'DASH', 'CPRT', 'PAYX', 'ROST', 'ODFL', 'KDP', 'FAST',
+                'VRSK', 'CTSH', 'EA', 'GEHC', 'LULU', 'DDOG', 'IDXX', 'XEL', 'EXC', 'ON',
+                'TEAM', 'ANSS', 'CSGP', 'ZS', 'DXCM', 'TTWO', 'BIIB', 'ILMN', 'WBD', 'MDB', 'ZM', 'MRNA'
+            ]
         
         # Additional active traders and popular options stocks
-       active_traders = [
-    # ETFs
-    'SPY', 'QQQ', 'IWM', 'DIA', 'SMH', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLP',
-    'XLU', 'XLB', 'XLY', 'XLRE', 'XLC', 'VTI', 'VOO', 'VEA', 'VWO', 'AGG',
-    
-    # Popular Options Stocks
-    'SOFI', 'PLTR', 'RIVN', 'COIN', 'RBLX', 'SNOW', 'NET', 'SHOP', 'UBER', 'LYFT',
-    'PINS', 'SNAP', 'ROKU', 'ARKK', 'GME', 'AMC', 'PLUG', 'HOOD', 'LCID', 'UPST',
-    'AFRM', 'CVNA', 'W', 'BYND', 'SPCE', 'DKNG', 'TLRY', 'SNDL', 'CLOV', 'WISH'
-]
+        active_traders = [
+            'SPY', 'QQQ', 'IWM', 'SMH', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLP',
+            'SOFI', 'PLTR', 'NIO', 'RIVN', 'COIN', 'RBLX', 'SNOW', 'NET',
+            'SHOP', 'SQ', 'UBER', 'LYFT', 'PINS', 'SNAP', 'ROKU', 'ARKK', 'GME', 'AMC', 'PLUG',
+            'HOOD', 'LCID', 'UPST', 'AFRM', 'CVNA', 'W', 'BYND', 'SPCE', 'DKNG', 'TLRY'
+        ]
         
         # Combine and deduplicate
         all_tickers = list(set(sp500_tickers + nasdaq100_tickers + active_traders))
