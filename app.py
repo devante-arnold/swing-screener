@@ -1544,14 +1544,163 @@ def main():
         st.markdown("---")
         
         if result == 'no_setup':
-            # No qualifying setup — show basic info anyway
+            # No qualifying setup — but still allow adding to positions
             st.warning(f"### 🔍 Manual Search: {ticker}")
-            st.markdown(f"**No qualifying confluence setup found for {ticker}**")
-            st.markdown("This stock does not currently meet your confluence criteria. It may be:")
-            st.markdown("- Too far from key pivot/support/resistance levels")
-            st.markdown("- EMAs not aligned for a directional trade")
-            st.markdown("- RSI not confirming direction")
-            st.markdown("- Risk/Reward below 1.5:1 minimum")
+            st.markdown(f"**⚠️ This stock does not meet confluence criteria**")
+            
+            # Fetch basic data for manual add
+            try:
+                stock = yf.Ticker(ticker)
+                data = stock.history(period='6mo')
+                current_price = data['Close'].iloc[-1]
+                
+                st.markdown(f"**Current Price:** ${current_price:.2f}")
+                st.markdown("")
+                st.markdown("**Why it doesn't qualify:**")
+                st.markdown("- Too far from key pivot/support/resistance levels")
+                st.markdown("- EMAs not aligned for a directional trade")
+                st.markdown("- RSI not confirming direction")
+                st.markdown("- Risk/Reward below 1.5:1 minimum")
+                st.markdown("- Not approaching any meaningful level")
+                
+                st.markdown("---")
+                st.info("💡 **You can still add this to positions manually if you have your own analysis**")
+                
+                # Manual add form (no confluence data)
+                position_key = f"manual_{ticker}"
+                add_key = f"add_{position_key}"
+                if add_key not in st.session_state:
+                    st.session_state[add_key] = False
+                
+                max_positions = 5
+                current_positions = len(st.session_state.active_positions)
+                already_tracked = any(p['ticker'] == ticker for p in st.session_state.active_positions)
+                
+                if already_tracked:
+                    st.info(f"📌 {ticker} is already in your active positions")
+                elif current_positions >= max_positions:
+                    st.warning(f"⚠️ Maximum {max_positions} positions reached")
+                elif not st.session_state[add_key]:
+                    if st.button(f"➕ Add {ticker} to Positions (Manual Entry)", key=f"add_manual_no_setup", type="secondary"):
+                        st.session_state[add_key] = True
+                        st.rerun()
+                else:
+                    st.markdown(f"### ➕ Manually Add {ticker} to Active Positions")
+                    st.caption("⚠️ No confluence - you'll need to set all parameters manually")
+                    
+                    with st.form(key=f"form_{position_key}"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            option_type_input = st.selectbox("Option Type", ["CALL", "PUT"])
+                            strike_input = st.number_input(
+                                "Strike Price",
+                                min_value=1.0,
+                                value=float(round(current_price)),
+                                step=0.50 if current_price < 20 else (1.0 if current_price < 100 else 5.0),
+                                help="Enter your chosen strike price"
+                            )
+                            target_r1_input = st.number_input(
+                                "Target R1",
+                                min_value=1.0,
+                                value=float(round(current_price * 1.05, 2)),
+                                step=0.50,
+                                help="First target (75% exit)"
+                            )
+                        with col2:
+                            entry_date = st.date_input("Entry Date", value=datetime.now())
+                            min_exp = datetime.now() + timedelta(days=45)
+                            default_exp = datetime.now() + timedelta(days=60)
+                            exp_date_input = st.date_input(
+                                "Expiration Date",
+                                value=default_exp,
+                                min_value=min_exp
+                            )
+                            contracts_input = st.number_input("Contracts", min_value=1, max_value=10, value=1)
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            target_r2_input = st.number_input(
+                                "Target R2",
+                                min_value=1.0,
+                                value=float(round(current_price * 1.10, 2)),
+                                step=0.50,
+                                help="Second target (25% exit)"
+                            )
+                        with col2:
+                            stop_input = st.number_input(
+                                "Stop Loss",
+                                min_value=1.0,
+                                value=float(round(current_price * 0.95, 2)),
+                                step=0.50,
+                                help="Stop loss level"
+                            )
+                        
+                        dte_calculated = (exp_date_input - entry_date).days
+                        risk = abs(current_price - stop_input)
+                        reward_r1 = abs(target_r1_input - current_price)
+                        rr_ratio = reward_r1 / risk if risk > 0 else 0
+                        
+                        st.caption(f"DTE: {dte_calculated} days | R/R to R1: {rr_ratio:.1f}:1")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            cancel_btn = st.form_submit_button("Cancel")
+                        with col2:
+                            submit_btn = st.form_submit_button("Add Position", type="primary")
+                        
+                        if cancel_btn:
+                            st.session_state[add_key] = False
+                            st.rerun()
+                        
+                        if submit_btn:
+                            # Validate
+                            if dte_calculated < 7:
+                                st.error("⚠️ Expiration must be at least 7 days from entry")
+                            elif dte_calculated > 365:
+                                st.error("⚠️ Expiration must be within 1 year")
+                            elif option_type_input == "CALL" and (target_r1_input <= current_price or target_r2_input <= current_price):
+                                st.error("⚠️ For CALLS, targets must be above current price")
+                            elif option_type_input == "CALL" and stop_input >= current_price:
+                                st.error("⚠️ For CALLS, stop must be below current price")
+                            elif option_type_input == "PUT" and (target_r1_input >= current_price or target_r2_input >= current_price):
+                                st.error("⚠️ For PUTS, targets must be below current price")
+                            elif option_type_input == "PUT" and stop_input <= current_price:
+                                st.error("⚠️ For PUTS, stop must be above current price")
+                            else:
+                                reward_r2 = abs(target_r2_input - current_price)
+                                rr_ratio_r2 = reward_r2 / risk if risk > 0 else 0
+                                
+                                new_position = {
+                                    'ticker': ticker,
+                                    'strike': strike_input,
+                                    'option_type': option_type_input,
+                                    'entry_date': entry_date.isoformat(),
+                                    'expiration_date': exp_date_input.isoformat(),
+                                    'entry_price': current_price,
+                                    'dte_at_entry': dte_calculated,
+                                    'contracts': contracts_input,
+                                    'setup_type': f"Manual entry ({option_type_input})",
+                                    'target_r1': target_r1_input,
+                                    'target_r2': target_r2_input,
+                                    'stop': stop_input,
+                                    'risk': risk,
+                                    'reward_r1': reward_r1,
+                                    'reward_r2': reward_r2,
+                                    'rr_ratio_r1': rr_ratio,
+                                    'rr_ratio_r2': rr_ratio_r2,
+                                    'manual_search': True,
+                                    'no_confluence': True
+                                }
+                                st.session_state.active_positions.append(new_position)
+                                save_positions(st.session_state.active_positions)
+                                st.session_state[add_key] = False
+                                st.success(f"✅ Added {ticker} ${strike_input} {option_type_input} (Manual Entry)")
+                                time.sleep(1)
+                                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Error fetching {ticker} data: {str(e)}")
+            
             if st.button("✖ Clear Search", key="clear_no_setup"):
                 st.session_state.manual_search_result = None
                 st.session_state.manual_search_ticker = None
