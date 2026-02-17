@@ -364,50 +364,16 @@ class SwingScreener:
 
             # ─────────────────────────────────────────────────
             # STEP 2: SETUP TYPE DETECTION
-            # Detect price APPROACHING a level, not already past it
+            # Pure technical - no human judgment needed
             # ─────────────────────────────────────────────────
 
             setup_type = None
-
-            # Bullish breakout: approaching R1 from below (within 5%)
-            # dist_to_r1 is positive when R1 is above current price
-            if 0 < dist_to_r1 < 0.05 and current_price > ema_20:
-                setup_type = "Bullish breakout"
-
-            # Bullish reversal: bouncing off support (S1, VAL, or prev week low)
-            # dist_to_s1 is positive when current price is above S1
-            elif (0 < dist_to_s1 < 0.03 or
-                  0 < dist_to_val < 0.03 or
-                  0 < dist_to_pwl < 0.03) and current_price > ema_50:
-                setup_type = "Bullish reversal"
-
-            # Bearish breakdown: approaching S1 from above (within 5%)
-            # When price approaching S1 from above, dist_to_s1 is small positive
-            elif 0 < dist_to_s1 < 0.05 and current_price < ema_20:
-                setup_type = "Bearish breakdown"
-
-            # Bearish reversal: rejecting resistance (R1, VAH, or prev week high)
-            # dist_to_r1 is positive when R1 is above, dist_to_vah positive when VAH above
-            elif (0 < dist_to_r1 < 0.03 or
-                  0 < dist_to_vah < 0.03 or
-                  0 < dist_to_pwh < 0.03) and current_price < ema_50:
-                setup_type = "Bearish reversal"
             
-            # ADDITIONAL: Catch more setups that meet EMA/PP criteria even if not at specific levels
-            # This prevents missing good setups just because they're not near a pivot
-            elif price_above_pp and current_price > ema_20 > ema_50:
-                # Strong bullish alignment but not near a specific level
-                # Check if at least approaching something within broader range
-                if dist_to_r1 < 0.10 or dist_to_s1 < 0.10:
-                    setup_type = "Bullish breakout"
-            elif not price_above_pp and current_price < ema_20 < ema_50:
-                # Strong bearish alignment
-                if dist_to_s1 < 0.10 or dist_to_r1 < 0.10:
-                    setup_type = "Bearish breakdown"
-
-            # Skip if no valid setup found
-            if setup_type is None:
-                return None
+            # Price above PP = bullish, below PP = bearish (simple rule)
+            if price_above_pp:
+                setup_type = "Bullish breakout"
+            else:
+                setup_type = "Bearish breakdown"
 
             is_bullish_setup = "Bullish" in setup_type
 
@@ -741,8 +707,8 @@ class SwingScreener:
             rr_ratio_r2 = reward_r2 / risk if risk > 0 else 0
             
             # Must have at least 1.5:1 R/R to R1
-            if rr_ratio_r1 < 1.5:
-                return None
+            # Note: This is stored but NOT used to filter yet - user can decide
+            poor_rr = rr_ratio_r1 < 1.5
             
             # ─────────────────────────────────────────────────
             # DTE RECOMMENDATION based on setup type
@@ -756,7 +722,9 @@ class SwingScreener:
                 dte_min         = 60
                 dte_max         = 120
             
-            if score < self.confluence_threshold:
+            # Return ALL results - let user filter by score in UI
+            # Minimum score of 2 just to avoid complete garbage
+            if score < 2:
                 return None
             
             return {
@@ -1327,11 +1295,11 @@ def main():
     st.sidebar.header("⚙️ Settings")
     
     confluence_threshold = st.sidebar.slider(
-        "Minimum Confluence Score",
-        min_value=3,
+        "Display Score Filter",
+        min_value=2,
         max_value=6,
-        value=4,
-        help="Minimum number of confluence factors required (now 6 total)"
+        value=3,
+        help="Filter displayed results by score (scan finds ALL stocks, you filter after)"
     )
     
     min_market_cap = st.sidebar.selectbox(
@@ -2017,17 +1985,20 @@ def main():
     
     # Display results
     if st.session_state.scan_results is not None:
-        results = st.session_state.scan_results
+        all_results = st.session_state.scan_results
         market_bullish = st.session_state.market_regime
         current_vix = st.session_state.vix_level
         
+        # Filter by user's score threshold
+        results = [r for r in all_results if r['score'] >= confluence_threshold]
+        
         if results:
-            st.success(f"✅ Found {len(results)} high-quality setups!")
+            st.success(f"✅ Showing {len(results)} setups (score ≥ {confluence_threshold}) out of {len(all_results)} total found")
             
             # Summary metrics
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Total Setups", len(results))
+                st.metric("Displayed", len(results))
             with col2:
                 bullish = sum(1 for r in results if "Bullish" in r['setup_type'])
                 st.metric("Bullish", bullish)
