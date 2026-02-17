@@ -1588,10 +1588,43 @@ def main():
                     st.markdown(f"### ➕ Manually Add {ticker} to Active Positions")
                     st.caption("⚠️ No confluence - you'll need to set all parameters manually")
                     
+                    # Option type selector OUTSIDE form so it updates dynamically
+                    option_type_input = st.selectbox(
+                        "Option Type", 
+                        ["CALL", "PUT"],
+                        help="Choose CALL (bullish) or PUT (bearish)",
+                        key=f"option_type_{position_key}"
+                    )
+                    
+                    is_call = option_type_input == "CALL"
+                    
+                    # Direction-aware defaults and labels
+                    if is_call:
+                        default_target1 = float(round(current_price * 1.05, 2))
+                        default_target2 = float(round(current_price * 1.10, 2))
+                        default_stop = float(round(current_price * 0.95, 2))
+                        target1_label = "🎯 Target R1 (First Resistance)"
+                        target2_label = "🎯 Target R2 (Second Resistance)"
+                        target1_help = "First resistance target ABOVE current price (75% exit)"
+                        target2_help = "Second resistance target ABOVE current price (25% exit)"
+                        stop_help = "Stop loss BELOW current price"
+                        direction_info = f"📈 **CALL Setup:** Price must move UP from ${current_price:.2f}"
+                    else:  # PUT
+                        default_target1 = float(round(current_price * 0.95, 2))
+                        default_target2 = float(round(current_price * 0.90, 2))
+                        default_stop = float(round(current_price * 1.05, 2))
+                        target1_label = "🎯 Target S1 (First Support)"
+                        target2_label = "🎯 Target S2 (Second Support)"
+                        target1_help = "First support target BELOW current price (75% exit)"
+                        target2_help = "Second support target BELOW current price (25% exit)"
+                        stop_help = "Stop loss ABOVE current price"
+                        direction_info = f"📉 **PUT Setup:** Price must move DOWN from ${current_price:.2f}"
+                    
+                    st.info(direction_info)
+                    
                     with st.form(key=f"form_{position_key}"):
                         col1, col2 = st.columns(2)
                         with col1:
-                            option_type_input = st.selectbox("Option Type", ["CALL", "PUT"])
                             strike_input = st.number_input(
                                 "Strike Price",
                                 min_value=1.0,
@@ -1600,11 +1633,11 @@ def main():
                                 help="Enter your chosen strike price"
                             )
                             target_r1_input = st.number_input(
-                                "Target R1",
+                                target1_label,
                                 min_value=1.0,
-                                value=float(round(current_price * 1.05, 2)),
+                                value=default_target1,
                                 step=0.50,
-                                help="First target (75% exit)"
+                                help=target1_help
                             )
                         with col2:
                             entry_date = st.date_input("Entry Date", value=datetime.now())
@@ -1620,19 +1653,19 @@ def main():
                         col1, col2 = st.columns(2)
                         with col1:
                             target_r2_input = st.number_input(
-                                "Target R2",
+                                target2_label,
                                 min_value=1.0,
-                                value=float(round(current_price * 1.10, 2)),
+                                value=default_target2,
                                 step=0.50,
-                                help="Second target (25% exit)"
+                                help=target2_help
                             )
                         with col2:
                             stop_input = st.number_input(
                                 "Stop Loss",
                                 min_value=1.0,
-                                value=float(round(current_price * 0.95, 2)),
+                                value=default_stop,
                                 step=0.50,
-                                help="Stop loss level"
+                                help=stop_help
                             )
                         
                         dte_calculated = (exp_date_input - entry_date).days
@@ -1640,7 +1673,8 @@ def main():
                         reward_r1 = abs(target_r1_input - current_price)
                         rr_ratio = reward_r1 / risk if risk > 0 else 0
                         
-                        st.caption(f"DTE: {dte_calculated} days | R/R to R1: {rr_ratio:.1f}:1")
+                        # Show current price for reference
+                        st.caption(f"Stock: ${current_price:.2f} | DTE: {dte_calculated}d | R/R: {rr_ratio:.1f}:1")
                         
                         col1, col2 = st.columns(2)
                         with col1:
