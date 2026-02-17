@@ -1,4 +1,4 @@
-import streamlit as st
+\import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -16,6 +16,14 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Helper function for neon glow icons
+def get_neon_icon(option_type, size="1.1em"):
+    """Get neon glow bull or bear emoji"""
+    if option_type == 'CALL':
+        return f'<span style="color: #00ff00; text-shadow: 0 0 8px #00ff00, 0 0 12px #00ff00; font-size: {size};">🐂</span>'
+    else:
+        return f'<span style="color: #ff0000; text-shadow: 0 0 8px #ff0000, 0 0 12px #ff0000; font-size: {size};">🐻</span>'
 
 # File paths for persistence
 CACHE_FILE = Path("/tmp/swing_scanner_cache.pkl")
@@ -657,7 +665,8 @@ def render_position_details_sidebar(pos, index):
     dist_to_stop = ((pos['stop'] - current_price) / current_price) * 100
     
     # Header
-    st.sidebar.markdown(f"### 📊 {pos['ticker']} ${pos['strike']}{pos['option_type'][0]}")
+    neon_icon = get_neon_icon(pos['option_type'], size="1.2em")
+    st.sidebar.markdown(f"### 📊 {neon_icon} {pos['ticker']} ${pos['strike']}{pos['option_type'][0]}", unsafe_allow_html=True)
     
     # Current status
     st.sidebar.markdown("**Current Status:**")
@@ -737,8 +746,9 @@ def render_position_details(pos, index):
     # Header with back and remove buttons
     col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
+        neon_icon = get_neon_icon(pos['option_type'], size="1.5em")
         option_color = "green" if pos['option_type'] == 'CALL' else "red"
-        st.markdown(f"## 📊 {pos['ticker']} <span style='color:{option_color}; font-weight:bold;'>${pos['strike']} {pos['option_type']}</span>", unsafe_allow_html=True)
+        st.markdown(f"## 📊 {neon_icon} {pos['ticker']} <span style='color:{option_color}; font-weight:bold;'>${pos['strike']} {pos['option_type']}</span>", unsafe_allow_html=True)
     with col2:
         if st.button("❌ Remove Position", key=f"remove_{index}", type="secondary"):
             st.session_state.active_positions.pop(index)
@@ -1074,8 +1084,9 @@ def main():
                 entry_dt = datetime.fromisoformat(pos['entry_date'])
                 expiration_date = entry_dt + timedelta(days=pos['dte_at_entry'])
                 exp_str = expiration_date.strftime('%m/%d/%y')
-            emoji = "🟢" if "Bullish" in pos['setup_type'] else "🔴"
-            st.sidebar.caption(f"↳ {emoji} {pos['ticker']} ${pos['strike']}{pos['option_type'][0]} - Exp {exp_str}")
+            
+            neon_icon = get_neon_icon(pos['option_type'], size="1em")
+            st.sidebar.markdown(f"↳ {neon_icon} {pos['ticker']} ${pos['strike']}{pos['option_type'][0]} - Exp {exp_str}", unsafe_allow_html=True)
     
     with col2:
         # Toggle button
@@ -1106,11 +1117,19 @@ def main():
                     entry_dt = datetime.fromisoformat(pos['entry_date'])
                     expiration_date = entry_dt + timedelta(days=pos['dte_at_entry'])
                     exp_str = expiration_date.strftime('%m/%d/%y')
-                emoji = "🟢" if "Bullish" in pos['setup_type'] else "🔴"
                 
-                if st.sidebar.button(f"{emoji} {pos['ticker']} ${pos['strike']}{pos['option_type'][0]} - Exp {exp_str}", key=f"pos_btn_{i}", use_container_width=True):
-                    st.session_state[f'show_details_{i}'] = True
-                    st.rerun()
+                # Use neon glow icon instead of emoji
+                neon_icon = get_neon_icon(pos['option_type'], size="1.2em")
+                button_label = f"{pos['ticker']} ${pos['strike']}{pos['option_type'][0]} - Exp {exp_str}"
+                
+                # Create button with HTML prefix for icon
+                col1, col2 = st.sidebar.columns([0.15, 0.85])
+                with col1:
+                    st.markdown(neon_icon, unsafe_allow_html=True)
+                with col2:
+                    if st.button(button_label, key=f"pos_btn_{i}", use_container_width=True):
+                        st.session_state[f'show_details_{i}'] = True
+                        st.rerun()
     else:
         # Folder closed - show nothing
         st.sidebar.caption("Click ▶ to open positions folder")
