@@ -880,26 +880,26 @@ def render_position_details(pos, index):
     
     with col1:
         if days_held < checkpoints['quick_exit']:
-            st.markdown(f"<div style='padding:1rem; background:#d4edda; border-left:4px solid #28a745; border-radius:4px;'><b>✅ Day {days_held} (Today)</b><br>{dte_remaining} DTE left<br>Safe Zone - Continue monitoring</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#1e4620; border-left:4px solid #28a745; border-radius:4px; color:#ffffff;'><b>✅ Day {days_held} (Today)</b><br>{dte_remaining} DTE left<br>Safe Zone - Continue monitoring</div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #6c757d; border-radius:4px;'><b>Day 0-{checkpoints['quick_exit']}</b><br>({checkpoints['dte_thresholds']['quick_exit_dte']}+ DTE)<br>Safe Zone (passed)</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#2a2a2a; border-left:4px solid #6c757d; border-radius:4px; color:#cccccc;'><b>Day 0-{checkpoints['quick_exit']}</b><br>({checkpoints['dte_thresholds']['quick_exit_dte']}+ DTE)<br>Safe Zone (passed)</div>", unsafe_allow_html=True)
     
     with col2:
         if days_held >= checkpoints['quick_exit'] and days_held < checkpoints['max_hold']:
-            st.markdown(f"<div style='padding:1rem; background:#fff3cd; border-left:4px solid #ffc107; border-radius:4px;'><b>⚠️ Day {days_held} (Today)</b><br>{dte_remaining} DTE left<br>Decision - Exit if no R1 progress</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#4a3800; border-left:4px solid #ffc107; border-radius:4px; color:#ffffff;'><b>⚠️ Day {days_held} (Today)</b><br>{dte_remaining} DTE left<br>Decision - Exit if no R1 progress</div>", unsafe_allow_html=True)
         elif days_held < checkpoints['quick_exit']:
-            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #ffc107; border-radius:4px;'><b>Day {checkpoints['quick_exit']}</b><br>({checkpoints['dte_thresholds']['quick_exit_dte']} DTE)<br>Decision Point (upcoming)</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#2a2a2a; border-left:4px solid #ffc107; border-radius:4px; color:#cccccc;'><b>Day {checkpoints['quick_exit']}</b><br>({checkpoints['dte_thresholds']['quick_exit_dte']} DTE)<br>Decision Point (upcoming)</div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #6c757d; border-radius:4px;'><b>Day {checkpoints['quick_exit']}</b><br>({checkpoints['dte_thresholds']['quick_exit_dte']} DTE)<br>Decision Point (passed)</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#2a2a2a; border-left:4px solid #6c757d; border-radius:4px; color:#cccccc;'><b>Day {checkpoints['quick_exit']}</b><br>({checkpoints['dte_thresholds']['quick_exit_dte']} DTE)<br>Decision Point (passed)</div>", unsafe_allow_html=True)
     
     with col3:
         if days_held >= checkpoints['max_hold']:
-            st.markdown(f"<div style='padding:1rem; background:#f8d7da; border-left:4px solid #dc3545; border-radius:4px;'><b>🔴 Day {days_held} (Today)</b><br>{dte_remaining} DTE left<br>MAXIMUM HOLD - EXIT NOW!</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#4a1f1f; border-left:4px solid #dc3545; border-radius:4px; color:#ffffff;'><b>🔴 Day {days_held} (Today)</b><br>{dte_remaining} DTE left<br>MAXIMUM HOLD - EXIT NOW!</div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div style='padding:1rem; background:#f8f9fa; border-left:4px solid #dc3545; border-radius:4px;'><b>Day {checkpoints['max_hold']}</b><br>({checkpoints['dte_thresholds']['max_hold_dte']} DTE)<br>Maximum Hold - Exit by this day</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:1rem; background:#2a2a2a; border-left:4px solid #dc3545; border-radius:4px; color:#cccccc;'><b>Day {checkpoints['max_hold']}</b><br>({checkpoints['dte_thresholds']['max_hold_dte']} DTE)<br>Maximum Hold - Exit by this day</div>", unsafe_allow_html=True)
     
     st.markdown("")
-    st.markdown(f"<div style='padding:1rem; background:#343a40; color:white; border-left:4px solid #000; border-radius:4px;'><b>💀 Day {checkpoints['theta_warning']} ({checkpoints['dte_thresholds']['theta_warning_dte']} DTE)</b><br>Theta Death Zone - Never hold this long (theta ~8-10%/day)</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='padding:1rem; background:#1a1a1a; color:#ffffff; border-left:4px solid #000; border-radius:4px;'><b>💀 Day {checkpoints['theta_warning']} ({checkpoints['dte_thresholds']['theta_warning_dte']} DTE)</b><br>Theta Death Zone - Never hold this long (theta ~8-10%/day)</div>", unsafe_allow_html=True)
     
     st.markdown("---")
     
