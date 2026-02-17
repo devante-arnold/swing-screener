@@ -2138,24 +2138,24 @@ def main():
             
             # Filters
             st.subheader("🔍 Filter Results")
-            col1, col2 = st.columns(2)
             
-            with col1:
-                setup_filter = st.multiselect(
-                    "Setup Type",
-                    options=list(set(r['setup_type'] for r in results)),
-                    default=list(set(r['setup_type'] for r in results))
-                )
-            
-            with col2:
-                min_score_filter = st.slider("Minimum Score", 3, 6, 4)
+            # Setup type filter only (score already filtered by sidebar)
+            setup_filter = st.multiselect(
+                "Setup Type",
+                options=list(set(r['setup_type'] for r in results)),
+                default=list(set(r['setup_type'] for r in results)),
+                help="Filter by bullish or bearish setups"
+            )
             
             filtered_results = [
                 r for r in results 
-                if r['setup_type'] in setup_filter and r['score'] >= min_score_filter
+                if r['setup_type'] in setup_filter
             ]
             
-            st.info(f"Showing {len(filtered_results)} of {len(results)} setups")
+            if len(filtered_results) < len(results):
+                st.info(f"Showing {len(filtered_results)} of {len(results)} setups (filtered by setup type)")
+            else:
+                st.info(f"Showing all {len(results)} setups")
             
             # Results - ALL TABS CLOSED by default
             for i, setup in enumerate(filtered_results[:50], 1):
