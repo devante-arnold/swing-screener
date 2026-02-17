@@ -39,6 +39,12 @@ if 'scan_results' not in st.session_state:
 if 'active_positions' not in st.session_state:
     st.session_state.active_positions = []
 
+if 'manual_search_result' not in st.session_state:
+    st.session_state.manual_search_result = None
+
+if 'manual_search_ticker' not in st.session_state:
+    st.session_state.manual_search_ticker = None
+
 # Custom CSS
 st.markdown("""
 <style>
@@ -298,217 +304,436 @@ class SwingScreener:
             
             price_distance = abs(current_price - ema_20) / ema_20
             
-            score = 0
+            # ─────────────────────────────────────────────────
+            # STEP 1: DETERMINE DIRECTIONAL BIAS FIRST
+            # Needed before pivot scoring so we score directionally
+            # ─────────────────────────────────────────────────
+
+            # Distances to key levels (signed: positive = level above price)
+            dist_to_r1  = (pivots['R1'] - current_price) / current_price
+            dist_to_r2  = (pivots['R2'] - current_price) / current_price
+            dist_to_s1  = (current_price - pivots['S1']) / current_price
+            dist_to_s2  = (current_price - pivots['S2']) / current_price
+            dist_to_val = (current_price - vrvp['VAL']) / current_price
+            dist_to_vah = (vrvp['VAH'] - current_price) / current_price
+            dist_to_pwh = (prev_week_high - current_price) / current_price
+            dist_to_pwl = (current_price - prev_week_low) / current_price
+
+            # Determine broad direction from EMA alignment and PP position
+            price_above_pp  = current_price > pivots['PP']
+            ema_bullish     = current_price > ema_20 > ema_50
+            ema_bearish     = current_price < ema_20 < ema_50
+
+            is_bullish_bias = price_above_pp and (ema_bullish or current_price > ema_20)
+            is_bearish_bias = not price_above_pp and (ema_bearish or current_price < ema_20)
+
+            # ─────────────────────────────────────────────────
+            # STEP 2: SETUP TYPE DETECTION
+            # Detect price APPROACHING a level, not already past it
+            # ─────────────────────────────────────────────────
+
+            setup_type = None
+
+            # Bullish breakout: approaching R1 from below (within 3%)
+            if 0 < dist_to_r1 < 0.03 and current_price > ema_20:
+                setup_type = "Bullish breakout"
+
+            # Bullish reversal: bouncing off support (S1, VAL, or prev week low)
+            elif (0 < dist_to_s1 < 0.02 or
+                  0 < dist_to_val < 0.02 or
+                  0 < dist_to_pwl < 0.02) and current_price > ema_50:
+                setup_type = "Bullish reversal"
+
+            # Bearish breakdown: approaching S1 from above (within 3%)
+            elif 0 < dist_to_s1 < 0.03 and current_price < ema_20:
+                setup_type = "Bearish breakdown"
+
+            # Bearish reversal: rejecting resistance (R1, VAH, or prev week high)
+            elif (0 < dist_to_r1 < 0.02 or
+                  0 < dist_to_vah < 0.02 or
+                  0 < dist_to_pwh < 0.02) and current_price < ema_50:
+                setup_type = "Bearish reversal"
+
+            # Skip if no valid setup found
+            if setup_type is None:
+                return None
+
+            is_bullish_setup = "Bullish" in setup_type
+
+            # ─────────────────────────────────────────────────
+            # STEP 3: DIRECTION-AWARE CONFLUENCE SCORING
+            # ─────────────────────────────────────────────────
+
+            score   = 0
             factors = []
             confluence_breakdown = {
-                'pivot': {'hit': False, 'level': '', 'price': 0, 'color': ''},
-                'vrvp': {'hit': False, 'level': '', 'price': 0},
-                'ema_sma': {'hit': False, 'direction': '', 'color': ''},
-                'prev_week': {'hit': False, 'level': '', 'distance': 0},
-                'rsi': {'hit': False, 'value': current_rsi, 'status': rsi_status, 'color': rsi_color},
+                'pivot':          {'hit': False, 'level': '', 'price': 0, 'color': '', 'reason': ''},
+                'pp_side':        {'hit': False, 'above': price_above_pp},
+                'vrvp':           {'hit': False, 'level': '', 'price': 0},
+                'ema_sma':        {'hit': False, 'direction': '', 'color': ''},
+                'prev_week':      {'hit': False, 'level': '', 'distance': 0},
+                'rsi':            {'hit': False, 'value': current_rsi, 'status': rsi_status, 'color': rsi_color},
                 'price_distance': {'hit': False, 'distance': price_distance}
             }
-            
-            # 1. Near pivot
-            closest_pivot = None
-            min_distance = float('inf')
-            for level_name, level_price in pivots.items():
-                distance = abs(current_price - level_price) / current_price
-                if distance < min_distance:
-                    min_distance = distance
-                    closest_pivot = (level_name, level_price)
-            
-            if closest_pivot and min_distance < 0.02:
+
+            # ── FACTOR 1: PIVOT LEVEL (direction-aware) ──────
+            # Bullish: reward S1/S2 (support below), penalise R1 nearby (wall above)
+            # Bearish: reward R1/R2 (resistance above), penalise S1 nearby (floor below)
+
+            if is_bullish_setup:
+                # Good: near support level (S1 or S2 below us)
+                if 0 < dist_to_s1 < 0.02:
+                    score += 1
+                    factors.append("At S1 support")
+                    confluence_breakdown['pivot'] = {
+                        'hit': True, 'level': 'S1',
+                        'price': pivots['S1'], 'color': 'bullish',
+                        'reason': 'Support below — bounce zone'
+                    }
+                elif 0 < dist_to_s2 < 0.02:
+                    score += 1
+                    factors.append("At S2 support")
+                    confluence_breakdown['pivot'] = {
+                        'hit': True, 'level': 'S2',
+                        'price': pivots['S2'], 'color': 'bullish',
+                        'reason': 'Strong support below — bounce zone'
+                    }
+                # Good: approaching R1 (breakout target) with room to run
+                elif 0 < dist_to_r1 < 0.03:
+                    # Only counts if there is ROOM between entry and R1 (at least 1%)
+                    if dist_to_r1 > 0.01:
+                        score += 1
+                        factors.append(f"Approaching R1 ({dist_to_r1*100:.1f}% away)")
+                        confluence_breakdown['pivot'] = {
+                            'hit': True, 'level': 'R1',
+                            'price': pivots['R1'], 'color': 'neutral',
+                            'reason': f'Breakout target {dist_to_r1*100:.1f}% above'
+                        }
+                    # If R1 is less than 1% away it's a wall, not a target — skip
+                # PP: score only if price is clearly above PP (bullish side)
+                elif price_above_pp and abs(current_price - pivots['PP']) / current_price > 0.01:
+                    score += 1
+                    factors.append("Above PP (bullish side)")
+                    confluence_breakdown['pivot'] = {
+                        'hit': True, 'level': 'PP',
+                        'price': pivots['PP'], 'color': 'bullish',
+                        'reason': 'Price above PP — bullish bias confirmed'
+                    }
+
+            else:  # Bearish setup
+                # Good: near resistance level (R1 or R2 above us)
+                if 0 < dist_to_r1 < 0.02:
+                    score += 1
+                    factors.append("At R1 resistance")
+                    confluence_breakdown['pivot'] = {
+                        'hit': True, 'level': 'R1',
+                        'price': pivots['R1'], 'color': 'bearish',
+                        'reason': 'Resistance above — rejection zone'
+                    }
+                elif 0 < dist_to_r2 < 0.02:
+                    score += 1
+                    factors.append("At R2 resistance")
+                    confluence_breakdown['pivot'] = {
+                        'hit': True, 'level': 'R2',
+                        'price': pivots['R2'], 'color': 'bearish',
+                        'reason': 'Strong resistance above — rejection zone'
+                    }
+                # Good: approaching S1 (breakdown target) with room to fall
+                elif 0 < dist_to_s1 < 0.03:
+                    if dist_to_s1 > 0.01:
+                        score += 1
+                        factors.append(f"Approaching S1 ({dist_to_s1*100:.1f}% away)")
+                        confluence_breakdown['pivot'] = {
+                            'hit': True, 'level': 'S1',
+                            'price': pivots['S1'], 'color': 'neutral',
+                            'reason': f'Breakdown target {dist_to_s1*100:.1f}% below'
+                        }
+                # PP: score only if price is clearly below PP (bearish side)
+                elif not price_above_pp and abs(current_price - pivots['PP']) / current_price > 0.01:
+                    score += 1
+                    factors.append("Below PP (bearish side)")
+                    confluence_breakdown['pivot'] = {
+                        'hit': True, 'level': 'PP',
+                        'price': pivots['PP'], 'color': 'bearish',
+                        'reason': 'Price below PP — bearish bias confirmed'
+                    }
+
+            # ── FACTOR 2: VRVP (direction-aware) ─────────────
+            # Bullish: near VAL (volume support below) = good
+            # Bearish: near VAH (volume resistance above) = good
+
+            if is_bullish_setup:
+                if 0 < dist_to_val < 0.02:
+                    score += 1
+                    factors.append("At VRVP VAL support")
+                    confluence_breakdown['vrvp'] = {
+                        'hit': True, 'level': 'VAL',
+                        'price': vrvp['VAL']
+                    }
+                elif abs(current_price - vrvp['POC']) / current_price < 0.01:
+                    score += 1
+                    factors.append("At VRVP POC")
+                    confluence_breakdown['vrvp'] = {
+                        'hit': True, 'level': 'POC',
+                        'price': vrvp['POC']
+                    }
+            else:
+                if 0 < dist_to_vah < 0.02:
+                    score += 1
+                    factors.append("At VRVP VAH resistance")
+                    confluence_breakdown['vrvp'] = {
+                        'hit': True, 'level': 'VAH',
+                        'price': vrvp['VAH']
+                    }
+                elif abs(current_price - vrvp['POC']) / current_price < 0.01:
+                    score += 1
+                    factors.append("At VRVP POC")
+                    confluence_breakdown['vrvp'] = {
+                        'hit': True, 'level': 'POC',
+                        'price': vrvp['POC']
+                    }
+
+            # ── FACTOR 3: EMA ALIGNMENT (direction-aware) ────
+            if is_bullish_setup and ema_bullish:
                 score += 1
-                level_name, level_price = closest_pivot
-                
-                # Determine color
-                if level_name in ['R1', 'R2']:
-                    pivot_color = 'bearish'  # Resistance
-                elif level_name in ['S1', 'S2']:
-                    pivot_color = 'bullish'  # Support
-                else:
-                    pivot_color = 'neutral'  # PP
-                
-                factors.append(f"Near {level_name}")
-                confluence_breakdown['pivot'] = {
-                    'hit': True,
-                    'level': level_name,
-                    'price': level_price,
-                    'color': pivot_color
-                }
-            
-            # 2. Near VRVP
-            closest_vrvp = None
-            min_vrvp_distance = float('inf')
-            for vrvp_name, vrvp_price in vrvp.items():
-                if vrvp_price > 0:
-                    distance = abs(current_price - vrvp_price) / current_price
-                    if distance < min_vrvp_distance:
-                        min_vrvp_distance = distance
-                        closest_vrvp = (vrvp_name, vrvp_price)
-            
-            if closest_vrvp and min_vrvp_distance < 0.02:
-                score += 1
-                vrvp_name, vrvp_price = closest_vrvp
-                factors.append(f"VRVP {vrvp_name}")
-                confluence_breakdown['vrvp'] = {
-                    'hit': True,
-                    'level': vrvp_name,
-                    'price': vrvp_price
-                }
-            
-            # 3. EMA/SMA alignment
-            if current_price > ema_20 > ema_50:
-                score += 1
-                factors.append("Bullish EMA/SMA")
+                factors.append("Bullish EMA stack")
                 confluence_breakdown['ema_sma'] = {
-                    'hit': True,
-                    'direction': 'Bullish',
-                    'color': 'bullish'
+                    'hit': True, 'direction': 'Bullish', 'color': 'bullish'
                 }
-            elif current_price < ema_20 < ema_50:
+            elif not is_bullish_setup and ema_bearish:
                 score += 1
-                factors.append("Bearish EMA/SMA")
+                factors.append("Bearish EMA stack")
                 confluence_breakdown['ema_sma'] = {
-                    'hit': True,
-                    'direction': 'Bearish',
-                    'color': 'bearish'
+                    'hit': True, 'direction': 'Bearish', 'color': 'bearish'
                 }
-            
-            # 4. Previous week H/L
-            dist_to_high = abs(current_price - prev_week_high) / current_price
-            dist_to_low = abs(current_price - prev_week_low) / current_price
-            
-            if dist_to_high < 0.03:
+            # Partial credit: price at least on correct side of EMA20
+            elif is_bullish_setup and current_price > ema_20:
                 score += 1
-                factors.append("Prev week high")
+                factors.append("Above EMA20")
+                confluence_breakdown['ema_sma'] = {
+                    'hit': True, 'direction': 'Bullish (partial)', 'color': 'bullish'
+                }
+            elif not is_bullish_setup and current_price < ema_20:
+                score += 1
+                factors.append("Below EMA20")
+                confluence_breakdown['ema_sma'] = {
+                    'hit': True, 'direction': 'Bearish (partial)', 'color': 'bearish'
+                }
+
+            # ── FACTOR 4: PREVIOUS WEEK H/L (direction-aware) ─
+            if is_bullish_setup and 0 < dist_to_pwl < 0.03:
+                # Bouncing off prev week low = bullish support
+                score += 1
+                factors.append(f"At prev week low ({dist_to_pwl*100:.1f}%)")
                 confluence_breakdown['prev_week'] = {
-                    'hit': True,
-                    'level': 'High',
-                    'distance': dist_to_high * 100
+                    'hit': True, 'level': 'Low', 'distance': dist_to_pwl * 100
                 }
-            elif dist_to_low < 0.03:
+            elif is_bullish_setup and 0 < dist_to_pwh < 0.03:
+                # Approaching prev week high = breakout target
+                if dist_to_pwh > 0.01:
+                    score += 1
+                    factors.append(f"Near prev week high ({dist_to_pwh*100:.1f}%)")
+                    confluence_breakdown['prev_week'] = {
+                        'hit': True, 'level': 'High', 'distance': dist_to_pwh * 100
+                    }
+            elif not is_bullish_setup and 0 < dist_to_pwh < 0.03:
+                # Rejecting off prev week high = bearish resistance
                 score += 1
-                factors.append("Prev week low")
+                factors.append(f"At prev week high ({dist_to_pwh*100:.1f}%)")
                 confluence_breakdown['prev_week'] = {
-                    'hit': True,
-                    'level': 'Low',
-                    'distance': dist_to_low * 100
+                    'hit': True, 'level': 'High', 'distance': dist_to_pwh * 100
                 }
-            
-            # 5. RSI confirmation (30-70 neutral zone)
-            if 30 < current_rsi < 70:
+            elif not is_bullish_setup and 0 < dist_to_pwl < 0.03:
+                # Approaching prev week low = breakdown target
+                if dist_to_pwl > 0.01:
+                    score += 1
+                    factors.append(f"Near prev week low ({dist_to_pwl*100:.1f}%)")
+                    confluence_breakdown['prev_week'] = {
+                        'hit': True, 'level': 'Low', 'distance': dist_to_pwl * 100
+                    }
+
+            # ── FACTOR 5: RSI (direction-aware) ──────────────
+            # Bullish: RSI oversold/rising = good. Overbought = bad (don't score)
+            # Bearish: RSI overbought/falling = good. Oversold = bad (don't score)
+            if is_bullish_setup:
+                if current_rsi < 45 or (30 < current_rsi < 60 and rsi_momentum == "Rising"):
+                    score += 1
+                    factors.append(f"RSI {current_rsi:.0f} (bullish)")
+                    confluence_breakdown['rsi']['hit'] = True
+            else:
+                if current_rsi > 55 or (40 < current_rsi < 70 and rsi_momentum == "Falling"):
+                    score += 1
+                    factors.append(f"RSI {current_rsi:.0f} (bearish)")
+                    confluence_breakdown['rsi']['hit'] = True
+
+            # ── FACTOR 6: PRICE NEAR EMA20 ───────────────────
+            # Only scores if price is on the CORRECT side of EMA20
+            if is_bullish_setup and price_distance < 0.03 and current_price >= ema_20:
                 score += 1
-                factors.append(f"RSI {current_rsi:.0f}")
-                confluence_breakdown['rsi']['hit'] = True
-            
-            # 6. Price distance from 20 EMA
-            if price_distance < 0.03:
-                score += 1
-                factors.append("Near 20 EMA")
+                factors.append(f"Near EMA20 ({price_distance*100:.1f}%)")
                 confluence_breakdown['price_distance'] = {
-                    'hit': True,
-                    'distance': price_distance * 100
+                    'hit': True, 'distance': price_distance * 100
+                }
+            elif not is_bullish_setup and price_distance < 0.03 and current_price <= ema_20:
+                score += 1
+                factors.append(f"Near EMA20 ({price_distance*100:.1f}%)")
+                confluence_breakdown['price_distance'] = {
+                    'hit': True, 'distance': price_distance * 100
                 }
             
-            # Determine setup type
-            setup_type = "Range-bound"
-            if current_price > pivots['R1'] and current_price > ema_20:
-                setup_type = "Bullish breakout"
-            elif current_price < pivots['S1'] and current_price < ema_20:
-                setup_type = "Bearish breakdown"
-            elif current_price > ema_20 and abs(current_price - vrvp['VAL']) / current_price < 0.02:
-                setup_type = "Bullish reversal"
-            elif current_price < ema_20 and abs(current_price - vrvp['VAH']) / current_price < 0.02:
-                setup_type = "Bearish reversal"
+            # ─────────────────────────────────────────────────
+            # TARGETS, STOP, STRIKE
+            # ─────────────────────────────────────────────────
             
-            # Calculate targets and stops
-            if "Bullish" in setup_type:
-                # Fix target logic when already above R1
-                if current_price < pivots['R1']:
-                    target_r1, target_r2 = pivots['R1'], pivots['R2']
-                elif current_price < pivots['R2']:
-                    target_r1 = pivots['R2']
-                    target_r2 = pivots['R2'] + (pivots['R2'] - pivots['R1'])  # Extend above R2
-                else:
-                    # Already above R2
-                    range_size = pivots['R2'] - pivots['R1']
-                    target_r1 = current_price + range_size * 0.5
-                    target_r2 = current_price + range_size
-                
-                stop = current_price - (1.5 * atr)
+            if is_bullish_setup:
                 option_type = "CALL"
                 
-                # Strike selection based on score - REALISTIC ROUNDING
+                # Stop: below nearest support, at least 1x ATR away
+                support_level = max(
+                    p for p in [pivots['S1'], vrvp['VAL'], prev_week_low]
+                    if p < current_price and p > 0
+                ) if any(p < current_price and p > 0 for p in [pivots['S1'], vrvp['VAL'], prev_week_low]) else current_price - (1.5 * atr)
+                
+                stop = min(support_level - (0.5 * atr), current_price - (1.5 * atr))
+                
+                # Targets: next resistance levels ABOVE current price
+                resistance_levels = sorted([
+                    p for p in [pivots['R1'], pivots['R2'], vrvp['VAH'], prev_week_high]
+                    if p > current_price
+                ])
+                
+                if len(resistance_levels) >= 2:
+                    target_r1 = resistance_levels[0]
+                    target_r2 = resistance_levels[1]
+                elif len(resistance_levels) == 1:
+                    target_r1 = resistance_levels[0]
+                    target_r2 = target_r1 + (target_r1 - current_price)
+                else:
+                    target_r1 = current_price + (2 * atr)
+                    target_r2 = current_price + (3 * atr)
+                
+                # Strike selection
                 if score == 6:
-                    suggested_strike = current_price  # ATM
+                    suggested_strike = current_price
                 elif score == 5:
-                    suggested_strike = current_price * 1.01  # 1% OTM
+                    suggested_strike = current_price * 1.01
                 else:
-                    suggested_strike = current_price * 1.02  # 2% OTM
+                    suggested_strike = current_price * 1.02
                 
-                # Round to realistic strike prices
-                if current_price >= 100:
-                    strike = round(suggested_strike / 5) * 5  # $5 increments ($100, $105, $110)
-                elif current_price >= 20:
-                    strike = round(suggested_strike)  # $1 increments ($95, $96, $97)
-                else:
-                    strike = round(suggested_strike * 2) / 2  # $0.50 increments ($19.50, $20.00)
-                
-            else:
-                # Fix target logic when already below S1
-                if current_price > pivots['S1']:
-                    target_r1, target_r2 = pivots['S1'], pivots['S2']
-                elif current_price > pivots['S2']:
-                    target_r1 = pivots['S2']
-                    target_r2 = pivots['S2'] - (pivots['S1'] - pivots['S2'])  # Extend below S2
-                else:
-                    # Already below S2
-                    range_size = pivots['S1'] - pivots['S2']
-                    target_r1 = current_price - range_size * 0.5
-                    target_r2 = current_price - range_size
-                
-                stop = current_price + (1.5 * atr)
+            else:  # Bearish
                 option_type = "PUT"
                 
-                # Strike selection based on score - REALISTIC ROUNDING
-                if score == 6:
-                    suggested_strike = current_price  # ATM
-                elif score == 5:
-                    suggested_strike = current_price * 0.99  # 1% OTM
-                else:
-                    suggested_strike = current_price * 0.98  # 2% OTM
+                # Stop: above nearest resistance, at least 1x ATR away
+                resistance_level = min(
+                    p for p in [pivots['R1'], vrvp['VAH'], prev_week_high]
+                    if p > current_price and p > 0
+                ) if any(p > current_price and p > 0 for p in [pivots['R1'], vrvp['VAH'], prev_week_high]) else current_price + (1.5 * atr)
                 
-                # Round to realistic strike prices
-                if current_price >= 100:
-                    strike = round(suggested_strike / 5) * 5
-                elif current_price >= 20:
-                    strike = round(suggested_strike)
+                stop = max(resistance_level + (0.5 * atr), current_price + (1.5 * atr))
+                
+                # Targets: next support levels BELOW current price
+                support_levels = sorted([
+                    p for p in [pivots['S1'], pivots['S2'], vrvp['VAL'], prev_week_low]
+                    if p < current_price and p > 0
+                ], reverse=True)
+                
+                if len(support_levels) >= 2:
+                    target_r1 = support_levels[0]
+                    target_r2 = support_levels[1]
+                elif len(support_levels) == 1:
+                    target_r1 = support_levels[0]
+                    target_r2 = target_r1 - (current_price - target_r1)
                 else:
-                    strike = round(suggested_strike * 2) / 2
+                    target_r1 = current_price - (2 * atr)
+                    target_r2 = current_price - (3 * atr)
+                
+                # Strike selection
+                if score == 6:
+                    suggested_strike = current_price
+                elif score == 5:
+                    suggested_strike = current_price * 0.99
+                else:
+                    suggested_strike = current_price * 0.98
+            
+            # ─────────────────────────────────────────────────
+            # STRIKE ROUNDING to realistic increments
+            # ─────────────────────────────────────────────────
+            if current_price >= 100:
+                strike = round(suggested_strike / 5) * 5
+            elif current_price >= 20:
+                strike = round(suggested_strike)
+            else:
+                strike = round(suggested_strike * 2) / 2
+            
+            # ─────────────────────────────────────────────────
+            # VALIDATE targets are in right direction
+            # ─────────────────────────────────────────────────
+            if is_bullish_setup:
+                if target_r1 <= current_price or target_r2 <= current_price:
+                    return None
+                if stop >= current_price:
+                    return None
+            else:
+                if target_r1 >= current_price or target_r2 >= current_price:
+                    return None
+                if stop <= current_price:
+                    return None
+            
+            # ─────────────────────────────────────────────────
+            # RISK/REWARD CALCULATION
+            # Filter out setups with R/R < 1.5:1
+            # ─────────────────────────────────────────────────
+            risk        = abs(current_price - stop)
+            reward_r1   = abs(target_r1 - current_price)
+            reward_r2   = abs(target_r2 - current_price)
+            rr_ratio_r1 = reward_r1 / risk if risk > 0 else 0
+            rr_ratio_r2 = reward_r2 / risk if risk > 0 else 0
+            
+            # Must have at least 1.5:1 R/R to R1
+            if rr_ratio_r1 < 1.5:
+                return None
+            
+            # ─────────────────────────────────────────────────
+            # DTE RECOMMENDATION based on setup type
+            # ─────────────────────────────────────────────────
+            if "breakout" in setup_type.lower() or "breakdown" in setup_type.lower():
+                recommended_dte = 60   # Breakouts need less time
+                dte_min         = 45
+                dte_max         = 90
+            else:
+                recommended_dte = 75   # Reversals need more time to develop
+                dte_min         = 60
+                dte_max         = 120
             
             if score < self.confluence_threshold:
                 return None
             
             return {
-                'ticker': ticker,
-                'price': current_price,
-                'score': score,
-                'setup_type': setup_type,
-                'factors': factors,
-                'option_type': option_type,
-                'strike': strike,
-                'target_r1': target_r1,
-                'target_r2': target_r2,
-                'stop': stop,
-                'atr': atr,
-                'rsi': current_rsi,
-                'rsi_status': rsi_status,
-                'rsi_color': rsi_color,
+                'ticker':           ticker,
+                'price':            current_price,
+                'score':            score,
+                'setup_type':       setup_type,
+                'factors':          factors,
+                'option_type':      option_type,
+                'strike':           strike,
+                'target_r1':        target_r1,
+                'target_r2':        target_r2,
+                'stop':             stop,
+                'risk':             risk,
+                'reward_r1':        reward_r1,
+                'reward_r2':        reward_r2,
+                'rr_ratio_r1':      rr_ratio_r1,
+                'rr_ratio_r2':      rr_ratio_r2,
+                'recommended_dte':  recommended_dte,
+                'dte_min':          dte_min,
+                'dte_max':          dte_max,
+                'atr':              atr,
+                'rsi':              current_rsi,
+                'rsi_status':       rsi_status,
+                'rsi_color':        rsi_color,
                 'confluence_breakdown': confluence_breakdown,
-                'ema_20': ema_20,
-                'ema_50': ema_50
+                'ema_20':           ema_20,
+                'ema_50':           ema_50
             }
         except:
             return None
@@ -835,16 +1060,33 @@ def render_position_details(pos, index):
     with col2:
         st.markdown(f"**Setup Type:** {pos['setup_type']}")
         st.markdown(f"**DTE at Entry:** {pos['dte_at_entry']} days")
-        st.markdown(f"**Target R1:** ${pos['target_r1']:.2f}")
-        st.markdown(f"**Target R2:** ${pos['target_r2']:.2f}")
+        
+        # R/R from saved data or recalculate
+        rr1 = pos.get('rr_ratio_r1', abs(pos['target_r1'] - pos['entry_price']) / abs(pos['entry_price'] - pos['stop']) if pos['entry_price'] != pos['stop'] else 0)
+        rr2 = pos.get('rr_ratio_r2', abs(pos['target_r2'] - pos['entry_price']) / abs(pos['entry_price'] - pos['stop']) if pos['entry_price'] != pos['stop'] else 0)
+        rr1_color = "green" if rr1 >= 2 else "orange" if rr1 >= 1.5 else "red"
+        rr2_color = "green" if rr2 >= 2 else "orange" if rr2 >= 1.5 else "red"
+        
+        st.markdown(f"**Target R1:** ${pos['target_r1']:.2f} &nbsp;<span style='color:{rr1_color}'>({rr1:.1f}:1 R/R)</span>", unsafe_allow_html=True)
+        st.markdown(f"**Target R2:** ${pos['target_r2']:.2f} &nbsp;<span style='color:{rr2_color}'>({rr2:.1f}:1 R/R)</span>", unsafe_allow_html=True)
     with col3:
-        dist_to_r1 = ((pos['target_r1'] - current_price) / current_price) * 100
-        dist_to_r2 = ((pos['target_r2'] - current_price) / current_price) * 100
+        dist_to_r1   = ((pos['target_r1'] - current_price) / current_price) * 100
+        dist_to_r2   = ((pos['target_r2'] - current_price) / current_price) * 100
         dist_to_stop = ((pos['stop'] - current_price) / current_price) * 100
         
-        st.markdown(f"**To R1:** {abs(dist_to_r1):.1f}% away")
-        st.markdown(f"**To R2:** {abs(dist_to_r2):.1f}% away")
-        st.markdown(f"**To Stop:** {abs(dist_to_stop):.1f}% away")
+        # Direction-aware labels
+        if "Bullish" in pos['setup_type']:
+            r1_label   = f"+{abs(dist_to_r1):.1f}% away"
+            r2_label   = f"+{abs(dist_to_r2):.1f}% away"
+            stop_label = f"-{abs(dist_to_stop):.1f}% away"
+        else:
+            r1_label   = f"-{abs(dist_to_r1):.1f}% away"
+            r2_label   = f"-{abs(dist_to_r2):.1f}% away"
+            stop_label = f"+{abs(dist_to_stop):.1f}% away"
+        
+        st.markdown(f"**To R1:** {r1_label}")
+        st.markdown(f"**To R2:** {r2_label}")
+        st.markdown(f"**To Stop:** {stop_label}")
         st.markdown(f"**Stop Loss:** ${pos['stop']:.2f}")
     
     st.markdown("---")
@@ -1055,6 +1297,68 @@ def main():
         format_func=lambda x: f"{x/1000:.0f}K shares"
     )
     
+    # ─────────────────────────────────────────────────
+    # MANUAL STOCK SEARCH
+    # ─────────────────────────────────────────────────
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔍 Manual Stock Search")
+    st.sidebar.caption("Search any ticker outside the top 50")
+    
+    manual_ticker = st.sidebar.text_input(
+        "Enter Ticker Symbol",
+        value="",
+        placeholder="e.g. TSLA, F, GME...",
+        key="manual_ticker_input"
+    ).upper().strip()
+    
+    search_btn = st.sidebar.button(
+        "🔍 Analyze Stock",
+        key="manual_search_btn",
+        use_container_width=True,
+        type="primary"
+    )
+    
+    # Run manual search
+    if search_btn and manual_ticker:
+        with st.sidebar.status(f"Analyzing {manual_ticker}...", expanded=False):
+            try:
+                screener_manual = SwingScreener(
+                    min_market_cap=0,       # No market cap filter for manual search
+                    min_volume=0,           # No volume filter for manual search
+                    confluence_threshold=confluence_threshold
+                )
+                
+                # Fetch data
+                stock = yf.Ticker(manual_ticker)
+                data = stock.history(period='6mo')
+                
+                if data.empty or len(data) < 50:
+                    st.sidebar.error(f"❌ No data found for {manual_ticker}")
+                    st.session_state.manual_search_result = None
+                    st.session_state.manual_search_ticker = None
+                else:
+                    # Run confluence check
+                    result = screener_manual.check_confluence(manual_ticker, data)
+                    
+                    if result:
+                        st.session_state.manual_search_result = result
+                        st.session_state.manual_search_ticker = manual_ticker
+                        st.sidebar.success(f"✅ Found setup! Score: {result['score']}/6")
+                    else:
+                        # Still store basic data even if no setup — show analysis
+                        st.session_state.manual_search_result = 'no_setup'
+                        st.session_state.manual_search_ticker = manual_ticker
+                        st.sidebar.warning(f"⚠️ {manual_ticker} — No qualifying setup found")
+                
+                st.rerun()
+                
+            except Exception as e:
+                st.sidebar.error(f"❌ Error: {str(e)}")
+                st.session_state.manual_search_result = None
+    
+    elif search_btn and not manual_ticker:
+        st.sidebar.warning("Please enter a ticker symbol")
+    
     # Active Positions Section
     st.sidebar.markdown("---")
     
@@ -1230,6 +1534,253 @@ def main():
         
         save_cached_results(results, datetime.utcnow(), market_bullish, current_vix)
     
+    # ─────────────────────────────────────────────────
+    # MANUAL SEARCH RESULTS
+    # ─────────────────────────────────────────────────
+    if st.session_state.manual_search_result is not None:
+        ticker = st.session_state.manual_search_ticker
+        result = st.session_state.manual_search_result
+        
+        st.markdown("---")
+        
+        if result == 'no_setup':
+            # No qualifying setup — show basic info anyway
+            st.warning(f"### 🔍 Manual Search: {ticker}")
+            st.markdown(f"**No qualifying confluence setup found for {ticker}**")
+            st.markdown("This stock does not currently meet your confluence criteria. It may be:")
+            st.markdown("- Too far from key pivot/support/resistance levels")
+            st.markdown("- EMAs not aligned for a directional trade")
+            st.markdown("- RSI not confirming direction")
+            st.markdown("- Risk/Reward below 1.5:1 minimum")
+            if st.button("✖ Clear Search", key="clear_no_setup"):
+                st.session_state.manual_search_result = None
+                st.session_state.manual_search_ticker = None
+                st.rerun()
+        else:
+            # Valid setup found — render full card
+            setup  = result
+            direction_emoji = "🟢" if "Bullish" in setup['setup_type'] else "🔴"
+            
+            st.markdown(f"### 🔍 Manual Search Result: {direction_emoji} **{ticker}**")
+            
+            col_clear, col_space = st.columns([1, 5])
+            with col_clear:
+                if st.button("✖ Clear Search", key="clear_manual_search"):
+                    st.session_state.manual_search_result = None
+                    st.session_state.manual_search_ticker = None
+                    st.rerun()
+            
+            position_key = f"manual_{ticker}"
+            add_key       = f"add_{position_key}"
+            if add_key not in st.session_state:
+                st.session_state[add_key] = False
+            
+            with st.expander(
+                f"{direction_emoji} **{ticker}** — ${setup['price']:.2f} "
+                f"| Score: {setup['score']}/6 "
+                f"| {setup['setup_type']} "
+                f"| R/R {setup['rr_ratio_r1']:.1f}:1",
+                expanded=True   # Auto-open manual search result
+            ):
+                # TradingView chart
+                tradingview_html = f"""
+                <div class="tradingview-widget-container" style="height:600px; width:100%;">
+                  <div class="tradingview-widget-container__widget" style="height:100%; width:100%;"></div>
+                  <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+                  {{
+                  "width": "100%", "height": "600",
+                  "symbol": "{ticker}",
+                  "interval": "D", "timezone": "America/New_York",
+                  "theme": "dark", "style": "1", "locale": "en",
+                  "enable_publishing": false, "hide_top_toolbar": false,
+                  "hide_legend": false, "allow_symbol_change": false,
+                  "save_image": false, "calendar": false, "hide_volume": false,
+                  "support_host": "https://www.tradingview.com"
+                  }}
+                  </script>
+                </div>
+                """
+                st.components.v1.html(tradingview_html, height=620)
+                
+                col1, col2 = st.columns([2, 1])
+                with col1:
+                    st.markdown(f"**Setup:** {setup['setup_type']}")
+                    st.markdown(f"**Stock Price:** ${setup['price']:.2f}")
+                    
+                    if setup['score'] == 6:
+                        strike_text = f"${setup['strike']} ATM"
+                    elif setup['score'] == 5:
+                        strike_text = f"${setup['strike']} (1% OTM)"
+                    else:
+                        strike_text = f"${setup['strike']} (2% OTM)"
+                    
+                    st.markdown(f"**Entry:** {setup['option_type']} {strike_text}")
+                    st.markdown(f"**Recommended DTE:** {setup['recommended_dte']} days ({setup['dte_min']}-{setup['dte_max']} range)")
+                    
+                    st.markdown("---")
+                    
+                    rr1_color = "green" if setup['rr_ratio_r1'] >= 2 else "orange" if setup['rr_ratio_r1'] >= 1.5 else "red"
+                    rr2_color = "green" if setup['rr_ratio_r2'] >= 2 else "orange" if setup['rr_ratio_r2'] >= 1.5 else "red"
+                    
+                    st.markdown(
+                        f"**Target R1:** ${setup['target_r1']:.2f} "
+                        f"(+${setup['reward_r1']:.2f} | "
+                        f"<span style='color:{rr1_color}'>{setup['rr_ratio_r1']:.1f}:1 R/R</span>) → 75% exit",
+                        unsafe_allow_html=True
+                    )
+                    st.markdown(
+                        f"**Target R2:** ${setup['target_r2']:.2f} "
+                        f"(+${setup['reward_r2']:.2f} | "
+                        f"<span style='color:{rr2_color}'>{setup['rr_ratio_r2']:.1f}:1 R/R</span>) → 25% exit",
+                        unsafe_allow_html=True
+                    )
+                    st.markdown(f"**Stop:** ${setup['stop']:.2f} (-${setup['risk']:.2f} | below structure)")
+                    st.markdown(f"**RSI:** {setup['rsi']:.1f} <span class='{setup['rsi_color']}'>{setup['rsi_status']}</span> | **ATR:** ${setup['atr']:.2f}", unsafe_allow_html=True)
+                
+                with col2:
+                    st.markdown("**Confluence Checklist:**")
+                    cb = setup['confluence_breakdown']
+                    
+                    # Pivot
+                    if cb['pivot']['hit']:
+                        st.markdown(f"✅ **Pivot:** {cb['pivot']['level']} @ ${cb['pivot']['price']:.2f}")
+                        st.caption(f"   {cb['pivot'].get('reason','')}")
+                    else:
+                        st.markdown("⬜ Pivot level")
+                    
+                    # VRVP
+                    if cb['vrvp']['hit']:
+                        st.markdown(f"✅ **VRVP:** {cb['vrvp']['level']} @ ${cb['vrvp']['price']:.2f}")
+                    else:
+                        st.markdown("⬜ VRVP level")
+                    
+                    # EMA
+                    if cb['ema_sma']['hit']:
+                        st.markdown(f"✅ **EMA:** {cb['ema_sma']['direction']}")
+                    else:
+                        st.markdown("⬜ EMA alignment")
+                    
+                    # Prev week
+                    if cb['prev_week']['hit']:
+                        st.markdown(f"✅ **Prev Week:** {cb['prev_week']['level']} ({cb['prev_week']['distance']:.1f}%)")
+                    else:
+                        st.markdown("⬜ Prev week H/L")
+                    
+                    # RSI
+                    if cb['rsi']['hit']:
+                        st.markdown(f"✅ **RSI:** {cb['rsi']['value']:.0f} {cb['rsi']['status']}")
+                    else:
+                        st.markdown(f"⬜ RSI: {cb['rsi']['value']:.0f} {cb['rsi']['status']}")
+                    
+                    # EMA distance
+                    if cb['price_distance']['hit']:
+                        st.markdown(f"✅ **Near EMA20:** {cb['price_distance']['distance']:.1f}%")
+                    else:
+                        st.markdown("⬜ Near EMA20")
+                    
+                    st.markdown(f"**Score: {setup['score']}/6**")
+                
+                # ── ADD TO POSITIONS ──
+                st.markdown("---")
+                
+                max_positions = 5
+                current_positions = len(st.session_state.active_positions)
+                already_tracked   = any(p['ticker'] == ticker for p in st.session_state.active_positions)
+                
+                if already_tracked:
+                    st.info(f"📌 {ticker} is already in your active positions")
+                elif current_positions >= max_positions:
+                    st.warning(f"⚠️ Maximum {max_positions} positions reached")
+                elif not st.session_state[add_key]:
+                    if st.button(f"➕ Add {ticker} to Active Positions", key=f"add_btn_{position_key}", type="primary"):
+                        st.session_state[add_key] = True
+                        st.rerun()
+                else:
+                    st.markdown(f"### ➕ Add {ticker} to Active Positions")
+                    
+                    rr1_color = "green" if setup['rr_ratio_r1'] >= 2 else "orange"
+                    st.markdown(
+                        f"<div style='background:#1e1e2e; padding:12px; border-radius:8px; margin-bottom:12px;'>"
+                        f"<b>{setup['option_type']} {ticker}</b> &nbsp;|&nbsp; "
+                        f"Stock: <b>${setup['price']:.2f}</b> &nbsp;|&nbsp; "
+                        f"R/R: <span style='color:{rr1_color}'><b>{setup['rr_ratio_r1']:.1f}:1</b></span> &nbsp;|&nbsp; "
+                        f"Stop: <b>${setup['stop']:.2f}</b> &nbsp;|&nbsp; "
+                        f"T1: <b>${setup['target_r1']:.2f}</b> &nbsp;|&nbsp; "
+                        f"T2: <b>${setup['target_r2']:.2f}</b>"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+                    
+                    with st.form(key=f"form_{position_key}"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            entry_date   = st.date_input("Entry Date", value=datetime.now())
+                            strike_input = st.number_input(
+                                "Strike Price",
+                                min_value=1.0,
+                                value=float(setup['strike']),
+                                step=0.50 if setup['price'] < 20 else (1.0 if setup['price'] < 100 else 5.0),
+                                help=f"Suggested: ${setup['strike']} ({setup['option_type']}, {setup['score']}/6 score)"
+                            )
+                        with col2:
+                            min_exp     = datetime.now() + timedelta(days=setup['dte_min'])
+                            default_exp = datetime.now() + timedelta(days=setup['recommended_dte'])
+                            exp_date_input = st.date_input(
+                                f"Expiration Date (Rec: {setup['recommended_dte']} DTE)",
+                                value=default_exp,
+                                min_value=min_exp,
+                                help=f"Recommended {setup['dte_min']}-{setup['dte_max']} DTE"
+                            )
+                            contracts_input = st.number_input("Contracts", min_value=1, max_value=10, value=1)
+                        
+                        dte_calculated = (exp_date_input - entry_date).days
+                        st.caption(f"DTE at Entry: {dte_calculated} days")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            cancel_btn = st.form_submit_button("Cancel")
+                        with col2:
+                            submit_btn = st.form_submit_button("Add Position", type="primary")
+                        
+                        if cancel_btn:
+                            st.session_state[add_key] = False
+                            st.rerun()
+                        
+                        if submit_btn:
+                            if dte_calculated < 7:
+                                st.error("⚠️ Expiration must be at least 7 days from entry")
+                            elif dte_calculated > 365:
+                                st.error("⚠️ Expiration must be within 1 year")
+                            else:
+                                new_position = {
+                                    'ticker':          ticker,
+                                    'strike':          strike_input,
+                                    'option_type':     setup['option_type'],
+                                    'entry_date':      entry_date.isoformat(),
+                                    'expiration_date': exp_date_input.isoformat(),
+                                    'entry_price':     setup['price'],
+                                    'dte_at_entry':    dte_calculated,
+                                    'contracts':       contracts_input,
+                                    'setup_type':      setup['setup_type'],
+                                    'target_r1':       setup['target_r1'],
+                                    'target_r2':       setup['target_r2'],
+                                    'stop':            setup['stop'],
+                                    'risk':            setup['risk'],
+                                    'reward_r1':       setup['reward_r1'],
+                                    'reward_r2':       setup['reward_r2'],
+                                    'rr_ratio_r1':     setup['rr_ratio_r1'],
+                                    'rr_ratio_r2':     setup['rr_ratio_r2'],
+                                    'manual_search':   True
+                                }
+                                st.session_state.active_positions.append(new_position)
+                                save_positions(st.session_state.active_positions)
+                                st.session_state[add_key] = False
+                                st.success(f"✅ Added {ticker} ${strike_input} {setup['option_type']} | R/R {setup['rr_ratio_r1']:.1f}:1")
+                                time.sleep(1)
+                                st.rerun()
+        
+        st.markdown("---")
+    
     # Display results
     if st.session_state.scan_results is not None:
         results = st.session_state.scan_results
@@ -1360,6 +1911,7 @@ def main():
                     
                     with col1:
                         st.markdown(f"**Setup:** {setup['setup_type']}")
+                        st.markdown(f"**Stock Price:** ${setup['price']:.2f}")
                         
                         # Strike display based on score
                         if setup['score'] == 6:
@@ -1369,14 +1921,35 @@ def main():
                         else:
                             strike_text = f"${setup['strike']} (2% OTM)"
                         
-                        st.markdown(f"**Entry:** {setup['option_type']} {strike_text}, 45-120 DTE")
-                        st.markdown(f"**Target R1:** ${setup['target_r1']:.2f} (75% exit)")
-                        st.markdown(f"**Target R2:** ${setup['target_r2']:.2f} (25% exit)")
-                        st.markdown(f"**Stop:** ${setup['stop']:.2f}")
+                        st.markdown(f"**Entry:** {setup['option_type']} {strike_text}")
+                        st.markdown(f"**Recommended DTE:** {setup['recommended_dte']} days ({setup['dte_min']}-{setup['dte_max']} range)")
                         
-                        # RSI with color and bold
-                        rsi_class = setup['rsi_color']
-                        st.markdown(f"**RSI:** {setup['rsi']:.1f} <span class='{rsi_class}'>{setup['rsi_status']}</span> | **ATR:** ${setup['atr']:.2f}", unsafe_allow_html=True)
+                        st.markdown("---")
+                        
+                        # Targets with R/R
+                        rr1_color = "green" if setup['rr_ratio_r1'] >= 2 else "orange" if setup['rr_ratio_r1'] >= 1.5 else "red"
+                        rr2_color = "green" if setup['rr_ratio_r2'] >= 2 else "orange" if setup['rr_ratio_r2'] >= 1.5 else "red"
+                        
+                        st.markdown(
+                            f"**Target R1:** ${setup['target_r1']:.2f} "
+                            f"(+${setup['reward_r1']:.2f} | "
+                            f"<span style='color:{rr1_color}'>{setup['rr_ratio_r1']:.1f}:1 R/R</span>) "
+                            f"→ 75% exit",
+                            unsafe_allow_html=True
+                        )
+                        st.markdown(
+                            f"**Target R2:** ${setup['target_r2']:.2f} "
+                            f"(+${setup['reward_r2']:.2f} | "
+                            f"<span style='color:{rr2_color}'>{setup['rr_ratio_r2']:.1f}:1 R/R</span>) "
+                            f"→ 25% exit",
+                            unsafe_allow_html=True
+                        )
+                        st.markdown(
+                            f"**Stop:** ${setup['stop']:.2f} "
+                            f"(-${setup['risk']:.2f} | below structure)"
+                        )
+                        
+                        st.markdown(f"**RSI:** {setup['rsi']:.1f} <span class='{setup['rsi_color']}'>{setup['rsi_status']}</span> | **ATR:** ${setup['atr']:.2f}", unsafe_allow_html=True)
                     
                     with col2:
                         st.markdown("**Confluence Checklist:**")
@@ -1454,14 +2027,14 @@ def main():
                                 )
                             with col2:
                                 # Expiration date input
-                                min_exp = datetime.now() + timedelta(days=30)
-                                default_exp = datetime.now() + timedelta(days=60)
+                                min_exp     = datetime.now() + timedelta(days=setup['dte_min'])
+                                default_exp = datetime.now() + timedelta(days=setup['recommended_dte'])
                                 
                                 exp_date_input = st.date_input(
-                                    "Expiration Date",
+                                    f"Expiration Date (Rec: {setup['recommended_dte']} DTE)",
                                     value=default_exp,
                                     min_value=min_exp,
-                                    help="Actual option expiration date"
+                                    help=f"Recommended {setup['dte_min']}-{setup['dte_max']} DTE for {setup['setup_type']}"
                                 )
                                 
                                 contracts_input = st.number_input("Number of Contracts", min_value=1, max_value=10, value=1)
@@ -1488,23 +2061,28 @@ def main():
                                     st.error("⚠️ Expiration must be within 1 year")
                                 else:
                                     new_position = {
-                                        'ticker': setup['ticker'],
-                                        'strike': strike_input,
-                                        'option_type': setup['option_type'],
-                                        'entry_date': entry_date.isoformat(),
-                                        'expiration_date': exp_date_input.isoformat(),
-                                        'entry_price': setup['price'],
-                                        'dte_at_entry': dte_calculated,
-                                        'contracts': contracts_input,
-                                        'setup_type': setup['setup_type'],
-                                        'target_r1': setup['target_r1'],
-                                        'target_r2': setup['target_r2'],
-                                        'stop': setup['stop']
+                                        'ticker':           setup['ticker'],
+                                        'strike':           strike_input,
+                                        'option_type':      setup['option_type'],
+                                        'entry_date':       entry_date.isoformat(),
+                                        'expiration_date':  exp_date_input.isoformat(),
+                                        'entry_price':      setup['price'],
+                                        'dte_at_entry':     dte_calculated,
+                                        'contracts':        contracts_input,
+                                        'setup_type':       setup['setup_type'],
+                                        'target_r1':        setup['target_r1'],
+                                        'target_r2':        setup['target_r2'],
+                                        'stop':             setup['stop'],
+                                        'risk':             setup['risk'],
+                                        'reward_r1':        setup['reward_r1'],
+                                        'reward_r2':        setup['reward_r2'],
+                                        'rr_ratio_r1':      setup['rr_ratio_r1'],
+                                        'rr_ratio_r2':      setup['rr_ratio_r2'],
                                     }
                                     st.session_state.active_positions.append(new_position)
                                     save_positions(st.session_state.active_positions)
                                     st.session_state[add_key] = False
-                                    st.success(f"✅ Added {setup['ticker']} ${strike_input} {setup['option_type']} to Active Positions!")
+                                    st.success(f"✅ Added {setup['ticker']} ${strike_input} {setup['option_type']} | R/R {setup['rr_ratio_r1']:.1f}:1")
                                     time.sleep(1)
                                     st.rerun()
             
