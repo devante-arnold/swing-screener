@@ -334,25 +334,41 @@ class SwingScreener:
 
             setup_type = None
 
-            # Bullish breakout: approaching R1 from below (within 3%)
-            if 0 < dist_to_r1 < 0.03 and current_price > ema_20:
+            # Bullish breakout: approaching R1 from below (within 5%)
+            # dist_to_r1 is positive when R1 is above current price
+            if 0 < dist_to_r1 < 0.05 and current_price > ema_20:
                 setup_type = "Bullish breakout"
 
             # Bullish reversal: bouncing off support (S1, VAL, or prev week low)
-            elif (0 < dist_to_s1 < 0.02 or
-                  0 < dist_to_val < 0.02 or
-                  0 < dist_to_pwl < 0.02) and current_price > ema_50:
+            # dist_to_s1 is positive when current price is above S1
+            elif (0 < dist_to_s1 < 0.03 or
+                  0 < dist_to_val < 0.03 or
+                  0 < dist_to_pwl < 0.03) and current_price > ema_50:
                 setup_type = "Bullish reversal"
 
-            # Bearish breakdown: approaching S1 from above (within 3%)
-            elif 0 < dist_to_s1 < 0.03 and current_price < ema_20:
+            # Bearish breakdown: approaching S1 from above (within 5%)
+            # When price approaching S1 from above, dist_to_s1 is small positive
+            elif 0 < dist_to_s1 < 0.05 and current_price < ema_20:
                 setup_type = "Bearish breakdown"
 
             # Bearish reversal: rejecting resistance (R1, VAH, or prev week high)
-            elif (0 < dist_to_r1 < 0.02 or
-                  0 < dist_to_vah < 0.02 or
-                  0 < dist_to_pwh < 0.02) and current_price < ema_50:
+            # dist_to_r1 is positive when R1 is above, dist_to_vah positive when VAH above
+            elif (0 < dist_to_r1 < 0.03 or
+                  0 < dist_to_vah < 0.03 or
+                  0 < dist_to_pwh < 0.03) and current_price < ema_50:
                 setup_type = "Bearish reversal"
+            
+            # ADDITIONAL: Catch more setups that meet EMA/PP criteria even if not at specific levels
+            # This prevents missing good setups just because they're not near a pivot
+            elif price_above_pp and current_price > ema_20 > ema_50:
+                # Strong bullish alignment but not near a specific level
+                # Check if at least approaching something within broader range
+                if dist_to_r1 < 0.10 or dist_to_s1 < 0.10:
+                    setup_type = "Bullish breakout"
+            elif not price_above_pp and current_price < ema_20 < ema_50:
+                # Strong bearish alignment
+                if dist_to_s1 < 0.10 or dist_to_r1 < 0.10:
+                    setup_type = "Bearish breakdown"
 
             # Skip if no valid setup found
             if setup_type is None:
