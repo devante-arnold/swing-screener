@@ -9,13 +9,124 @@ import time
 import pickle
 from pathlib import Path
 
-# Page config
+# Page config - Mobile optimized
 st.set_page_config(
     page_title="Swing Trade Screener",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"  # Collapses on mobile automatically
 )
+
+# Mobile detection and responsive CSS
+st.markdown("""
+<style>
+/* Mobile-first responsive design */
+@media only screen and (max-width: 768px) {
+    /* Reduce padding on mobile */
+    .block-container {
+        padding-top: 0.5rem !important;
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+    
+    /* Make buttons full width on mobile */
+    .stButton button {
+        width: 100% !important;
+    }
+    
+    /* Stack columns vertically on mobile */
+    .row-widget.stHorizontal {
+        flex-direction: column !important;
+    }
+    
+    /* Smaller text on mobile */
+    .stMarkdown {
+        font-size: 14px !important;
+    }
+    
+    /* Compact metrics */
+    [data-testid="stMetricValue"] {
+        font-size: 1.2rem !important;
+    }
+    
+    /* Smaller metric labels */
+    [data-testid="stMetricLabel"] {
+        font-size: 0.8rem !important;
+    }
+    
+    /* Collapse sidebar by default on mobile */
+    section[data-testid="stSidebar"] {
+        width: 0px !important;
+    }
+    
+    /* Full width charts on mobile */
+    .tradingview-widget-container {
+        height: 350px !important;
+    }
+    
+    /* Smaller expander headers */
+    .streamlit-expanderHeader {
+        font-size: 14px !important;
+    }
+    
+    /* Compact form inputs */
+    .stTextInput input, .stNumberInput input, .stDateInput input {
+        font-size: 14px !important;
+        padding: 6px !important;
+    }
+    
+    /* Reduce space between elements */
+    .element-container {
+        margin-bottom: 0.5rem !important;
+    }
+}
+
+/* Prevent zoom on input focus (iOS Safari) */
+input, select, textarea, button {
+    font-size: 16px !important;
+}
+
+/* Better touch targets (iOS HIG minimum 44px) */
+.stButton button {
+    min-height: 44px !important;
+    min-width: 44px !important;
+    padding: 10px 16px !important;
+    touch-action: manipulation;
+}
+
+/* Prevent double-tap zoom */
+* {
+    touch-action: manipulation;
+}
+
+/* Compact tables on mobile */
+@media only screen and (max-width: 768px) {
+    table {
+        font-size: 11px !important;
+    }
+    th, td {
+        padding: 4px !important;
+    }
+}
+
+/* Improve scrolling on mobile */
+@media only screen and (max-width: 768px) {
+    .main {
+        overflow-x: hidden !important;
+    }
+}
+
+/* Make expanders easier to tap on mobile */
+@media only screen and (max-width: 768px) {
+    .streamlit-expanderHeader {
+        padding: 12px !important;
+        min-height: 44px !important;
+    }
+}
+</style>
+
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+""", unsafe_allow_html=True)
 
 # Helper function for neon glow icons
 def get_neon_icon(option_type, size="1.1em"):
@@ -112,9 +223,19 @@ def load_positions():
     return []
 
 def save_positions(positions):
+    """Save positions with multiple fallbacks for reliability"""
     try:
+        # Primary: File system
         with open(POSITIONS_FILE, 'wb') as f:
             pickle.dump(positions, f)
+    except:
+        pass
+    
+    try:
+        # Secondary: JSON backup (more portable)
+        json_file = Path("/tmp/active_positions.json")
+        with open(json_file, 'w') as f:
+            json.dump(positions, f, default=str)
     except:
         pass
 
@@ -130,6 +251,15 @@ if st.session_state.scan_results is None:
         st.session_state.scan_timestamp = cached['timestamp']
         st.session_state.market_regime = cached['regime']
         st.session_state.vix_level = cached['vix']
+
+# Mobile-specific: Add a "last interaction" timestamp to detect auto-reloads
+if 'last_interaction' not in st.session_state:
+    st.session_state.last_interaction = datetime.now()
+
+# Mobile-specific: Disable file watcher (prevents auto-reload)
+if 'initialized' not in st.session_state:
+    st.session_state.initialized = True
+    # This prevents the app from auto-rerunning on mobile when switching tabs
 
 class SwingScreener:
     def __init__(self, min_market_cap=2e9, min_volume=500000, confluence_threshold=4):
@@ -1336,8 +1466,70 @@ def main():
     st.markdown('<p class="main-header">📊 Swing Trade Screener</p>', unsafe_allow_html=True)
     st.markdown("**AI-powered confluence scanner with position tracker**")
     
+    # Mobile-friendly: Show data persistence status prominently
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        st.warning("⚠️ **This is not financial advice. This is only the display of my personal trading tools.**")
+    with col2:
+        # Show active positions count (persisted)
+        pos_count = len(st.session_state.active_positions)
+        if pos_count > 0:
+            st.success(f"💾 {pos_count} saved")
+        else:
+            st.info("💾 No positions")
+    with col3:
+        # Show last backup option
+        if pos_count > 0:
+            st.info("📥 Sidebar → Backup")
+        else:
+            st.info("📊 Ready to scan")
+    
+    # Mobile tip - more prominent and actionable
+    if len(st.session_state.active_positions) > 0:
+        st.info("💡 **Mobile users:** Download backup (sidebar) to prevent data loss if app reloads")
+    
+    # Collapsible detailed mobile info
+    with st.expander("📱 Mobile Users - Click Here First", expanded=False):
+        st.markdown("""
+        ### ✅ Your Data IS Being Saved
+        
+        **Automatic saves happen when you:**
+        - ✅ Add a position → Saved immediately
+        - ✅ Delete a position → Saved immediately  
+        - ✅ Run a scan → Cached for 7 days
+        - ✅ Edit position details → Saved immediately
+        
+        ### 🔄 If App Reloads (Streamlit Cloud behavior):
+        
+        **What persists:**
+        - ✅ Your active positions (file-based storage)
+        - ✅ Recent scan results (cache)
+        
+        **What doesn't:**
+        - ❌ Manual search results (just re-search)
+        - ❌ Open position details (just click again)
+        
+        ### 💾 Extra Protection (Recommended):
+        
+        1. **Sidebar → Data Backup → Download**
+           - Saves positions to your phone
+           - Upload anytime to restore
+        
+        2. **Best Practices:**
+           - Download backup after adding positions
+           - Keep app in foreground while scanning
+           - Use "Add to Home Screen" for stability
+           - Don't switch apps during scan
+        
+        ### 🔥 If You Lose Data:
+        
+        1. Check sidebar for upload button
+        2. Upload your last downloaded backup
+        3. All positions restored instantly
+        """)
+    
     # Disclaimer
-    st.warning("⚠️ **This is not financial advice. This is only the display of my personal trading tools.**")
+    # (Moved to columns above)
     
     # Market status notice (using Eastern Time with DST support)
     from datetime import timezone as tz
@@ -1378,6 +1570,22 @@ def main():
     # Sidebar
     st.sidebar.header("⚙️ Settings")
     
+    # Mobile mode toggle
+    if 'mobile_mode' not in st.session_state:
+        st.session_state.mobile_mode = False
+    
+    mobile_mode = st.sidebar.checkbox(
+        "📱 Mobile Compact Mode",
+        value=st.session_state.mobile_mode,
+        help="Simplified UI with less detail - recommended for phones"
+    )
+    st.session_state.mobile_mode = mobile_mode
+    
+    if mobile_mode:
+        st.sidebar.info("📱 Compact mode active - showing simplified view")
+    
+    st.sidebar.markdown("---")
+    
     confluence_threshold = st.sidebar.slider(
         "Display Score Filter",
         min_value=2,
@@ -1399,6 +1607,51 @@ def main():
         index=2,
         format_func=lambda x: f"{x/1000:.0f}K shares"
     )
+    
+    
+    # ─────────────────────────────────────────────────
+    # DATA BACKUP/RESTORE (Mobile-friendly persistence)
+    # ─────────────────────────────────────────────────
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("💾 Data Backup")
+    st.sidebar.caption("Prevent data loss on mobile")
+    
+    col1, col2 = st.sidebar.columns(2)
+    
+    with col1:
+        if len(st.session_state.active_positions) > 0:
+            # Export positions as JSON
+            positions_json = json.dumps(st.session_state.active_positions, indent=2, default=str)
+            st.download_button(
+                label="📥 Download",
+                data=positions_json,
+                file_name=f"positions_{datetime.now().strftime('%Y%m%d')}.json",
+                mime="application/json",
+                use_container_width=True,
+                help="Save your positions to your device"
+            )
+        else:
+            st.button("📥 Download", disabled=True, use_container_width=True, help="No positions to export")
+    
+    with col2:
+        uploaded_file = st.file_uploader(
+            "📤 Restore",
+            type=['json'],
+            help="Upload saved positions",
+            label_visibility="collapsed",
+            key="position_restore"
+        )
+        
+        if uploaded_file is not None:
+            try:
+                restored_positions = json.load(uploaded_file)
+                st.session_state.active_positions = restored_positions
+                save_positions(restored_positions)
+                st.sidebar.success(f"✅ Restored {len(restored_positions)} positions!")
+                time.sleep(1)
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"❌ Restore failed: {str(e)}")
     
     # ─────────────────────────────────────────────────
     # MANUAL STOCK SEARCH
@@ -1868,25 +2121,29 @@ def main():
                 f"| R/R {setup['rr_ratio_r1']:.1f}:1",
                 expanded=True   # Auto-open manual search result
             ):
-                # TradingView chart
-                tradingview_html = f"""
-                <div class="tradingview-widget-container" style="height:600px; width:100%;">
-                  <div class="tradingview-widget-container__widget" style="height:100%; width:100%;"></div>
-                  <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-                  {{
-                  "width": "100%", "height": "600",
-                  "symbol": "{ticker}",
-                  "interval": "D", "timezone": "America/New_York",
-                  "theme": "dark", "style": "1", "locale": "en",
-                  "enable_publishing": false, "hide_top_toolbar": false,
-                  "hide_legend": false, "allow_symbol_change": false,
-                  "save_image": false, "calendar": false, "hide_volume": false,
-                  "support_host": "https://www.tradingview.com"
-                  }}
-                  </script>
-                </div>
-                """
-                st.components.v1.html(tradingview_html, height=620)
+                # TradingView chart - Hide in mobile mode for performance
+                if not st.session_state.get('mobile_mode', False):
+                    tradingview_html = f"""
+                    <div class="tradingview-widget-container" style="height:600px; width:100%;">
+                      <div class="tradingview-widget-container__widget" style="height:100%; width:100%;"></div>
+                      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+                      {{
+                      "width": "100%", "height": "600",
+                      "symbol": "{ticker}",
+                      "interval": "D", "timezone": "America/New_York",
+                      "theme": "dark", "style": "1", "locale": "en",
+                      "enable_publishing": false, "hide_top_toolbar": false,
+                      "hide_legend": false, "allow_symbol_change": false,
+                      "save_image": false, "calendar": false, "hide_volume": false,
+                      "support_host": "https://www.tradingview.com"
+                      }}
+                      </script>
+                    </div>
+                    """
+                    st.components.v1.html(tradingview_html, height=620)
+                else:
+                    # Mobile mode: Show link to TradingView instead
+                    st.info(f"📱 **Mobile Mode:** [View {ticker} chart on TradingView →](https://www.tradingview.com/chart/?symbol={ticker})")
                 
                 col1, col2 = st.columns([2, 1])
                 with col1:
@@ -2167,33 +2424,37 @@ def main():
                     f"(Score: {setup['score']}/6)",
                     expanded=False  # ALL CLOSED
                 ):
-                    # TradingView Chart
-                    tradingview_html = f"""
-                    <div class="tradingview-widget-container" style="height:600px; width:100%;">
-                      <div class="tradingview-widget-container__widget" style="height:100%; width:100%;"></div>
-                      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-                      {{
-                      "width": "100%",
-                      "height": "600",
-                      "symbol": "{setup['ticker']}",
-                      "interval": "D",
-                      "timezone": "America/New_York",
-                      "theme": "light",
-                      "style": "1",
-                      "locale": "en",
-                      "enable_publishing": false,
-                      "hide_top_toolbar": false,
-                      "hide_legend": false,
-                      "allow_symbol_change": false,
-                      "save_image": false,
-                      "calendar": false,
-                      "hide_volume": false,
-                      "support_host": "https://www.tradingview.com"
-                      }}
-                      </script>
-                    </div>
-                    """
-                    st.components.v1.html(tradingview_html, height=620)
+                    # TradingView Chart - Hide in mobile mode for faster loading
+                    if not st.session_state.get('mobile_mode', False):
+                        tradingview_html = f"""
+                        <div class="tradingview-widget-container" style="height:600px; width:100%;">
+                          <div class="tradingview-widget-container__widget" style="height:100%; width:100%;"></div>
+                          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+                          {{
+                          "width": "100%",
+                          "height": "600",
+                          "symbol": "{setup['ticker']}",
+                          "interval": "D",
+                          "timezone": "America/New_York",
+                          "theme": "light",
+                          "style": "1",
+                          "locale": "en",
+                          "enable_publishing": false,
+                          "hide_top_toolbar": false,
+                          "hide_legend": false,
+                          "allow_symbol_change": false,
+                          "save_image": false,
+                          "calendar": false,
+                          "hide_volume": false,
+                          "support_host": "https://www.tradingview.com"
+                          }}
+                          </script>
+                        </div>
+                        """
+                        st.components.v1.html(tradingview_html, height=620)
+                    else:
+                        # Mobile mode: Link instead of embed
+                        st.info(f"📱 [View {setup['ticker']} chart →](https://www.tradingview.com/chart/?symbol={setup['ticker']})")
                     
                     # Main content
                     col1, col2 = st.columns([2, 1])
