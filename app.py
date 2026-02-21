@@ -2184,10 +2184,38 @@ def main():
                 else:
                     st.markdown(f"### ➕ Add {ticker} to Active Positions")
                     
+                    # Option type override (OUTSIDE form so it updates dynamically)
+                    st.markdown("**Option Type:**")
+                    col_strategy, col_override = st.columns([1, 1])
+                    
+                    with col_strategy:
+                        st.info(f"Strategy suggests: **{setup['option_type']}** ({setup['setup_type']})")
+                    
+                    with col_override:
+                        override_option_type = st.checkbox(
+                            "Override direction",
+                            help="Check this to trade against the strategy direction",
+                            key=f"override_type_{position_key}"
+                        )
+                    
+                    # Let user choose if overriding
+                    if override_option_type:
+                        option_type_choice = st.selectbox(
+                            "Choose your direction:",
+                            ["CALL", "PUT"],
+                            index=0 if setup['option_type'] == "CALL" else 1,
+                            key=f"option_type_select_{position_key}",
+                            help="⚠️ You're overriding the strategy - make sure you have your own analysis!"
+                        )
+                        st.warning(f"⚠️ **Override active:** Using {option_type_choice} instead of strategy's {setup['option_type']}")
+                    else:
+                        option_type_choice = setup['option_type']
+                    
+                    # Summary card with chosen option type
                     rr1_color = "green" if setup['rr_ratio_r1'] >= 2 else "orange"
                     st.markdown(
                         f"<div style='background:#1e1e2e; padding:12px; border-radius:8px; margin-bottom:12px;'>"
-                        f"<b>{setup['option_type']} {ticker}</b> &nbsp;|&nbsp; "
+                        f"<b>{option_type_choice} {ticker}</b> &nbsp;|&nbsp; "
                         f"Stock: <b>${setup['price']:.2f}</b> &nbsp;|&nbsp; "
                         f"R/R: <span style='color:{rr1_color}'><b>{setup['rr_ratio_r1']:.1f}:1</b></span> &nbsp;|&nbsp; "
                         f"Stop: <b>${setup['stop']:.2f}</b> &nbsp;|&nbsp; "
@@ -2241,13 +2269,13 @@ def main():
                                 new_position = {
                                     'ticker':          ticker,
                                     'strike':          strike_input,
-                                    'option_type':     setup['option_type'],
+                                    'option_type':     option_type_choice,  # Use user's choice (may be overridden)
                                     'entry_date':      entry_date.isoformat(),
                                     'expiration_date': exp_date_input.isoformat(),
                                     'entry_price':     setup['price'],
                                     'dte_at_entry':    dte_calculated,
                                     'contracts':       contracts_input,
-                                    'setup_type':      setup['setup_type'],
+                                    'setup_type':      setup['setup_type'] + (" (OVERRIDE)" if override_option_type else ""),
                                     'target_r1':       setup['target_r1'],
                                     'target_r2':       setup['target_r2'],
                                     'stop':            setup['stop'],
@@ -2473,6 +2501,33 @@ def main():
                         # Show add position form
                         st.markdown(f"### ➕ Add {setup['ticker']} to Active Positions")
                         
+                        # Option type override (OUTSIDE form)
+                        st.markdown("**Option Type:**")
+                        col_strategy, col_override = st.columns([1, 1])
+                        
+                        with col_strategy:
+                            st.info(f"Strategy suggests: **{setup['option_type']}** ({setup['setup_type']})")
+                        
+                        with col_override:
+                            override_option_type_scan = st.checkbox(
+                                "Override direction",
+                                help="Check this to trade against the strategy direction",
+                                key=f"override_type_scan_{position_key}"
+                            )
+                        
+                        # Let user choose if overriding
+                        if override_option_type_scan:
+                            option_type_choice_scan = st.selectbox(
+                                "Choose your direction:",
+                                ["CALL", "PUT"],
+                                index=0 if setup['option_type'] == "CALL" else 1,
+                                key=f"option_type_select_scan_{position_key}",
+                                help="⚠️ You're overriding the strategy - make sure you have your own analysis!"
+                            )
+                            st.warning(f"⚠️ **Override active:** Using {option_type_choice_scan} instead of strategy's {setup['option_type']}")
+                        else:
+                            option_type_choice_scan = setup['option_type']
+                        
                         with st.form(key=f"form_{position_key}"):
                             col1, col2 = st.columns(2)
                             with col1:
@@ -2524,13 +2579,13 @@ def main():
                                     new_position = {
                                         'ticker':           setup['ticker'],
                                         'strike':           strike_input,
-                                        'option_type':      setup['option_type'],
+                                        'option_type':      option_type_choice_scan,  # Use user's choice
                                         'entry_date':       entry_date.isoformat(),
                                         'expiration_date':  exp_date_input.isoformat(),
                                         'entry_price':      setup['price'],
                                         'dte_at_entry':     dte_calculated,
                                         'contracts':        contracts_input,
-                                        'setup_type':       setup['setup_type'],
+                                        'setup_type':       setup['setup_type'] + (" (OVERRIDE)" if override_option_type_scan else ""),
                                         'target_r1':        setup['target_r1'],
                                         'target_r2':        setup['target_r2'],
                                         'stop':             setup['stop'],
@@ -2543,7 +2598,7 @@ def main():
                                     st.session_state.active_positions.append(new_position)
                                     save_positions(st.session_state.active_positions)
                                     st.session_state[add_key] = False
-                                    st.success(f"✅ Added {setup['ticker']} ${strike_input} {setup['option_type']} | R/R {setup['rr_ratio_r1']:.1f}:1")
+                                    st.success(f"✅ Added {setup['ticker']} ${strike_input} {option_type_choice_scan} | R/R {setup['rr_ratio_r1']:.1f}:1")
                                     time.sleep(1)
                                     st.rerun()
             
