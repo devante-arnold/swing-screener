@@ -1466,70 +1466,8 @@ def main():
     st.markdown('<p class="main-header">📊 Swing Trade Screener</p>', unsafe_allow_html=True)
     st.markdown("**AI-powered confluence scanner with position tracker**")
     
-    # Mobile-friendly: Show data persistence status prominently
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        st.warning("⚠️ **This is not financial advice. This is only the display of my personal trading tools.**")
-    with col2:
-        # Show active positions count (persisted)
-        pos_count = len(st.session_state.active_positions)
-        if pos_count > 0:
-            st.success(f"💾 {pos_count} saved")
-        else:
-            st.info("💾 No positions")
-    with col3:
-        # Show last backup option
-        if pos_count > 0:
-            st.info("📥 Sidebar → Backup")
-        else:
-            st.info("📊 Ready to scan")
-    
-    # Mobile tip - more prominent and actionable
-    if len(st.session_state.active_positions) > 0:
-        st.info("💡 **Mobile users:** Download backup (sidebar) to prevent data loss if app reloads")
-    
-    # Collapsible detailed mobile info
-    with st.expander("📱 Mobile Users - Click Here First", expanded=False):
-        st.markdown("""
-        ### ✅ Your Data IS Being Saved
-        
-        **Automatic saves happen when you:**
-        - ✅ Add a position → Saved immediately
-        - ✅ Delete a position → Saved immediately  
-        - ✅ Run a scan → Cached for 7 days
-        - ✅ Edit position details → Saved immediately
-        
-        ### 🔄 If App Reloads (Streamlit Cloud behavior):
-        
-        **What persists:**
-        - ✅ Your active positions (file-based storage)
-        - ✅ Recent scan results (cache)
-        
-        **What doesn't:**
-        - ❌ Manual search results (just re-search)
-        - ❌ Open position details (just click again)
-        
-        ### 💾 Extra Protection (Recommended):
-        
-        1. **Sidebar → Data Backup → Download**
-           - Saves positions to your phone
-           - Upload anytime to restore
-        
-        2. **Best Practices:**
-           - Download backup after adding positions
-           - Keep app in foreground while scanning
-           - Use "Add to Home Screen" for stability
-           - Don't switch apps during scan
-        
-        ### 🔥 If You Lose Data:
-        
-        1. Check sidebar for upload button
-        2. Upload your last downloaded backup
-        3. All positions restored instantly
-        """)
-    
     # Disclaimer
-    # (Moved to columns above)
+    st.warning("⚠️ **This is not financial advice. This is only the display of my personal trading tools.**")
     
     # Market status notice (using Eastern Time with DST support)
     from datetime import timezone as tz
@@ -1577,12 +1515,16 @@ def main():
     mobile_mode = st.sidebar.checkbox(
         "📱 Mobile Compact Mode",
         value=st.session_state.mobile_mode,
-        help="Simplified UI with less detail - recommended for phones"
+        help="Hides charts for faster loading on mobile"
     )
     st.session_state.mobile_mode = mobile_mode
     
-    if mobile_mode:
-        st.sidebar.info("📱 Compact mode active - showing simplified view")
+    # Allow scanning anytime (override market hours)
+    scan_anytime = st.sidebar.checkbox(
+        "🔓 Scan Anytime",
+        value=False,
+        help="Override market hours restriction - scan even when markets are closed"
+    )
     
     st.sidebar.markdown("---")
     
@@ -1611,48 +1553,6 @@ def main():
     
     # ─────────────────────────────────────────────────
     # DATA BACKUP/RESTORE (Mobile-friendly persistence)
-    # ─────────────────────────────────────────────────
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("💾 Data Backup")
-    st.sidebar.caption("Prevent data loss on mobile")
-    
-    col1, col2 = st.sidebar.columns(2)
-    
-    with col1:
-        if len(st.session_state.active_positions) > 0:
-            # Export positions as JSON
-            positions_json = json.dumps(st.session_state.active_positions, indent=2, default=str)
-            st.download_button(
-                label="📥 Download",
-                data=positions_json,
-                file_name=f"positions_{datetime.now().strftime('%Y%m%d')}.json",
-                mime="application/json",
-                use_container_width=True,
-                help="Save your positions to your device"
-            )
-        else:
-            st.button("📥 Download", disabled=True, use_container_width=True, help="No positions to export")
-    
-    with col2:
-        uploaded_file = st.file_uploader(
-            "📤 Restore",
-            type=['json'],
-            help="Upload saved positions",
-            label_visibility="collapsed",
-            key="position_restore"
-        )
-        
-        if uploaded_file is not None:
-            try:
-                restored_positions = json.load(uploaded_file)
-                st.session_state.active_positions = restored_positions
-                save_positions(restored_positions)
-                st.sidebar.success(f"✅ Restored {len(restored_positions)} positions!")
-                time.sleep(1)
-                st.rerun()
-            except Exception as e:
-                st.sidebar.error(f"❌ Restore failed: {str(e)}")
-    
     # ─────────────────────────────────────────────────
     # MANUAL STOCK SEARCH
     # ─────────────────────────────────────────────────
@@ -1810,16 +1710,17 @@ def main():
     col1, col2, col3 = st.columns([2, 2, 1])
     
     markets_closed = is_weekend or is_before_open or is_after_close
+    can_scan = not markets_closed or scan_anytime
     
     with col1:
-        if markets_closed:
+        if not can_scan:
             st.button("🚀 Run Market Scan", type="primary", use_container_width=True, disabled=True)
             if is_weekend:
-                st.caption("⏸️ Markets closed (Weekend). Scan disabled until Monday 9:30 AM ET.")
+                st.caption("⏸️ Markets closed (Weekend). Enable 'Scan Anytime' in sidebar to override.")
             elif is_before_open:
-                st.caption(f"⏸️ Markets closed. Opens at 9:30 AM ET (currently {current_eastern.strftime('%I:%M %p')} ET).")
+                st.caption(f"⏸️ Markets closed. Opens at 9:30 AM ET. Enable 'Scan Anytime' to override.")
             else:
-                st.caption("⏸️ Markets closed. Scan available tomorrow at 9:30 AM ET.")
+                st.caption("⏸️ Markets closed. Enable 'Scan Anytime' in sidebar to override.")
         else:
             scan_button = st.button("🚀 Run Market Scan", type="primary", use_container_width=True)
     
@@ -1846,7 +1747,7 @@ def main():
             """, height=30)
     
     # Run scan
-    if not markets_closed and 'scan_button' in locals() and scan_button:
+    if can_scan and 'scan_button' in locals() and scan_button:
         screener = SwingScreener(
             min_market_cap=min_market_cap,
             min_volume=min_volume,
