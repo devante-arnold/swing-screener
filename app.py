@@ -591,6 +591,35 @@ class SwingScreener:
 
             is_bullish_setup = "Bullish" in setup_type
 
+            # ═════════════════════════════════════════════════
+            # PHASE 1 FILTERS (HARD REJECTION FILTERS)
+            # These prevent low-quality setups from appearing
+            # ═════════════════════════════════════════════════
+
+            # FILTER 1: MOMENTUM CHECK (Prevents falling knives)
+            # Calculate 5-day price change
+            five_day_change = (current_price - data['Close'].iloc[-6]) / data['Close'].iloc[-6]
+            
+            # Reject bullish setups if falling knife (down >3% in 5 days)
+            if is_bullish_setup and five_day_change < -0.03:
+                return None  # Skip - stock falling too hard
+            
+            # Reject bearish setups if rallying into resistance (up >3% in 5 days)
+            if not is_bullish_setup and five_day_change > 0.03:
+                return None  # Skip - stock rallying too hard
+
+            # FILTER 2: EMA DISTANCE CHECK (Prevents choppy or extended entries)
+            # Calculate distance from EMA20
+            ema_distance = abs(current_price - ema_20) / ema_20
+            
+            # Reject if outside sweet spot (too choppy <2% or too extended >8%)
+            if ema_distance < 0.02 or ema_distance > 0.08:
+                return None  # Skip - either no trend or overextended
+
+            # ═════════════════════════════════════════════════
+            # FILTERS PASSED - Proceed to scoring
+            # ═════════════════════════════════════════════════
+
             # ─────────────────────────────────────────────────
             # STEP 3: DIRECTION-AWARE CONFLUENCE SCORING
             # ─────────────────────────────────────────────────
@@ -811,6 +840,44 @@ class SwingScreener:
                 confluence_breakdown['price_distance'] = {
                     'hit': True, 'distance': price_distance * 100
                 }
+            
+            # ═════════════════════════════════════════════════
+            # PHASE 1 FILTERS (SOFT SCORING ADJUSTMENTS)
+            # ═════════════════════════════════════════════════
+
+            # FILTER 3: VOLUME SPIKE BONUS
+            # Check if volume is elevated at this level (institutional participation)
+            recent_volume = data['Volume'].iloc[-5:].mean()  # Last 5 days avg
+            avg_volume = data['Volume'].iloc[-30:].mean()    # 30-day avg
+            
+            if recent_volume > avg_volume * 1.5:  # 50% above average
+                score += 1
+                volume_ratio = recent_volume / avg_volume
+                factors.append(f"Volume spike ({volume_ratio:.1f}x avg)")
+                confluence_breakdown['volume_spike'] = {
+                    'hit': True, 'ratio': volume_ratio
+                }
+
+            # FILTER 4: DAY-OF-WEEK PENALTY
+            # Penalize Monday (gap risk) and Friday (weekend risk) entries
+            day_of_week = data.index[-1].weekday()  # 0=Monday, 4=Friday
+            
+            if day_of_week == 0:  # Monday
+                score -= 1
+                factors.append("⚠️ Monday entry (-1 penalty)")
+                confluence_breakdown['day_penalty'] = {
+                    'applied': True, 'day': 'Monday', 'penalty': -1
+                }
+            elif day_of_week == 4:  # Friday
+                score -= 1
+                factors.append("⚠️ Friday entry (-1 penalty)")
+                confluence_breakdown['day_penalty'] = {
+                    'applied': True, 'day': 'Friday', 'penalty': -1
+                }
+            
+            # ═════════════════════════════════════════════════
+            # ALL FILTERS APPLIED - Proceed to target calculation
+            # ═════════════════════════════════════════════════
             
             # ─────────────────────────────────────────────────
             # TARGETS, STOP, STRIKE
