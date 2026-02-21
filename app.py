@@ -612,8 +612,9 @@ class SwingScreener:
             # Calculate distance from EMA20
             ema_distance = abs(current_price - ema_20) / ema_20
             
-            # Reject if outside sweet spot (too choppy <2% or too extended >8%)
-            if ema_distance < 0.02 or ema_distance > 0.08:
+            # Reject if outside sweet spot (too choppy <1% or too extended >10%)
+            # Sweet spot is 1-10% from EMA20 (clean trend with room to move)
+            if ema_distance < 0.01 or ema_distance > 0.10:
                 return None  # Skip - either no trend or overextended
 
             # ═════════════════════════════════════════════════
