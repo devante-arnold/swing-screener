@@ -1682,7 +1682,7 @@ def render_position_details(pos, index):
             if status_analysis['details']:
                 d = status_analysis['details']
                 st.markdown(f"Confluence: {d['setup_score']}/4 factors")
-                st.markdown(f"• EMA20 (${d['ema_20']:.2f}): {'✓' if d['ema20_ok'] else '✗'}")
+                st.markdown(f"• EMA20 (${d['ema_20']:.2f}): {'✓' if d['ema_20_ok'] else '✗'}")
                 st.markdown(f"• Pivot (${d['pivot']:.2f}): {'✓' if d['pp_ok'] else '✗'}")
                 st.markdown(f"• RSI: {d['rsi']:.0f} {'✓' if d['rsi_ok'] else '✗'}")
                 st.markdown(f"• Volume: {d['volume_ratio']:.1f}x avg")
