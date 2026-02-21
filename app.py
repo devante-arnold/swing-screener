@@ -1463,102 +1463,93 @@ def render_position_details(pos, index):
 
 
 def main():
-    st.markdown('<p class="main-header">📊 Swing Trade Screener</p>', unsafe_allow_html=True)
-    st.markdown("**AI-powered confluence scanner with position tracker**")
+    # Professional minimal header
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown("# Swing Screener")
+        st.caption("Technical confluence scanner for options trading")
+    with col2:
+        # Compact market status indicator
+        from datetime import timezone as tz
+        now_utc = datetime.now(tz.utc)
+        year = now_utc.year
+        
+        # DST check
+        march = datetime(year, 3, 1, tzinfo=tz.utc)
+        march_second_sunday = march + timedelta(days=(13 - march.weekday()) % 7)
+        november = datetime(year, 11, 1, tzinfo=tz.utc)
+        november_first_sunday = november + timedelta(days=(6 - november.weekday()) % 7)
+        
+        if march_second_sunday <= now_utc < november_first_sunday:
+            eastern_offset = -4
+        else:
+            eastern_offset = -5
+        
+        eastern = timezone(timedelta(hours=eastern_offset))
+        current_eastern = datetime.now(eastern)
+        current_day = current_eastern.weekday()
+        current_hour = current_eastern.hour
+        
+        is_weekend = current_day >= 5
+        is_before_open = current_hour < 9 or (current_hour == 9 and current_eastern.minute < 30)
+        is_after_close = current_hour >= 16
+        
+        markets_open = not (is_weekend or is_before_open or is_after_close)
+        
+        if markets_open:
+            st.success("🟢 Markets Open")
+        else:
+            st.error("🔴 Markets Closed")
     
-    # Disclaimer
-    st.warning("⚠️ **This is not financial advice. This is only the display of my personal trading tools.**")
+    st.markdown("---")
     
-    # Market status notice (using Eastern Time with DST support)
-    from datetime import timezone as tz
-    import calendar
+    # Sidebar - Professional and minimal
+    st.sidebar.markdown("### Filters")
     
-    # Simple DST check for US Eastern Time
-    now_utc = datetime.now(tz.utc)
-    year = now_utc.year
+    confluence_threshold = st.sidebar.slider(
+        "Score Threshold",
+        min_value=2,
+        max_value=6,
+        value=3,
+        help="Minimum confluence score to display"
+    )
     
-    # DST starts 2nd Sunday in March, ends 1st Sunday in November (US)
-    march = datetime(year, 3, 1, tzinfo=tz.utc)
-    march_second_sunday = march + timedelta(days=(13 - march.weekday()) % 7)
-    november = datetime(year, 11, 1, tzinfo=tz.utc)
-    november_first_sunday = november + timedelta(days=(6 - november.weekday()) % 7)
+    min_market_cap = st.sidebar.selectbox(
+        "Market Cap",
+        options=[500e6, 1e9, 2e9, 5e9, 10e9],
+        index=2,
+        format_func=lambda x: f"${x/1e9:.1f}B+"
+    )
     
-    # Determine if DST is active
-    if march_second_sunday <= now_utc < november_first_sunday:
-        eastern_offset = -4  # EDT (daylight time)
-    else:
-        eastern_offset = -5  # EST (standard time)
+    min_volume = st.sidebar.selectbox(
+        "Daily Volume",
+        options=[100000, 250000, 500000, 1000000],
+        index=2,
+        format_func=lambda x: f"{x/1000:.0f}K+"
+    )
     
-    eastern = timezone(timedelta(hours=eastern_offset))
-    current_eastern = datetime.now(eastern)
-    current_day = current_eastern.weekday()
-    current_hour = current_eastern.hour
-    
-    is_weekend = current_day >= 5
-    is_before_open = current_hour < 9 or (current_hour == 9 and current_eastern.minute < 30)
-    is_after_close = current_hour >= 16
-    
-    if is_weekend:
-        st.info("🗓️ **Weekend Mode:** Markets are closed. Scanning is disabled. Showing cached results from the last scan.")
-    elif is_before_open:
-        st.info(f"⏰ **Pre-Market:** Markets open at 9:30 AM ET. Currently {current_eastern.strftime('%I:%M %p')} ET. Showing cached results.")
-    elif is_after_close:
-        st.info("🌙 **After Hours:** Markets closed at 4:00 PM ET. Showing cached results. Scan available tomorrow at 9:30 AM ET.")
-    
-    # Sidebar
-    st.sidebar.header("⚙️ Settings")
+    st.sidebar.markdown("### Options")
     
     # Mobile mode toggle
     if 'mobile_mode' not in st.session_state:
         st.session_state.mobile_mode = False
     
     mobile_mode = st.sidebar.checkbox(
-        "📱 Mobile Compact Mode",
+        "Compact Mode",
         value=st.session_state.mobile_mode,
-        help="Hides charts for faster loading on mobile"
+        help="Faster loading - replaces charts with links"
     )
     st.session_state.mobile_mode = mobile_mode
     
     # Allow scanning anytime (override market hours)
     scan_anytime = st.sidebar.checkbox(
-        "🔓 Scan Anytime",
+        "Scan After Hours",
         value=False,
-        help="Override market hours restriction - scan even when markets are closed"
+        help="Enable scanning outside market hours (9:30a-4p ET)"
     )
     
-    st.sidebar.markdown("---")
-    
-    confluence_threshold = st.sidebar.slider(
-        "Display Score Filter",
-        min_value=2,
-        max_value=6,
-        value=3,
-        help="Filter displayed results by score (scan finds ALL stocks, you filter after)"
-    )
-    
-    min_market_cap = st.sidebar.selectbox(
-        "Minimum Market Cap",
-        options=[500e6, 1e9, 2e9, 5e9, 10e9],
-        index=2,
-        format_func=lambda x: f"${x/1e9:.1f}B"
-    )
-    
-    min_volume = st.sidebar.selectbox(
-        "Minimum Daily Volume",
-        options=[100000, 250000, 500000, 1000000],
-        index=2,
-        format_func=lambda x: f"{x/1000:.0f}K shares"
-    )
-    
-    
-    # ─────────────────────────────────────────────────
-    # DATA BACKUP/RESTORE (Mobile-friendly persistence)
-    # ─────────────────────────────────────────────────
-    # MANUAL STOCK SEARCH
-    # ─────────────────────────────────────────────────
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🔍 Manual Stock Search")
-    st.sidebar.caption("Search any ticker outside the top 50")
+    st.sidebar.markdown("### Manual Search")
+    st.sidebar.caption("Enter any ticker symbol")
     
     manual_ticker = st.sidebar.text_input(
         "Enter Ticker Symbol",
@@ -1706,45 +1697,28 @@ def main():
         render_position_details(st.session_state.active_positions[showing_details], showing_details)
         return  # Skip showing scan results
     
-    # Main area - Scan button
-    col1, col2, col3 = st.columns([2, 2, 1])
+    # Main area - Scan button (clean, professional)
+    col1, col2 = st.columns([3, 2])
     
     markets_closed = is_weekend or is_before_open or is_after_close
     can_scan = not markets_closed or scan_anytime
     
     with col1:
         if not can_scan:
-            st.button("🚀 Run Market Scan", type="primary", use_container_width=True, disabled=True)
-            if is_weekend:
-                st.caption("⏸️ Markets closed (Weekend). Enable 'Scan Anytime' in sidebar to override.")
-            elif is_before_open:
-                st.caption(f"⏸️ Markets closed. Opens at 9:30 AM ET. Enable 'Scan Anytime' to override.")
-            else:
-                st.caption("⏸️ Markets closed. Enable 'Scan Anytime' in sidebar to override.")
+            st.button("Run Scan", type="primary", use_container_width=True, disabled=True)
+            st.caption("Markets closed - enable 'Scan After Hours' in sidebar")
         else:
-            scan_button = st.button("🚀 Run Market Scan", type="primary", use_container_width=True)
+            scan_button = st.button("Run Scan", type="primary", use_container_width=True)
     
     with col2:
         if st.session_state.scan_timestamp:
-            utc_timestamp = st.session_state.scan_timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')
-            st.components.v1.html(f"""
-                <div style="margin-top: 8px; font-size: 0.9em; color: #666;">
-                    Last scan: <span id="local-time"></span>
-                </div>
-                <script>
-                    const utcDate = new Date('{utc_timestamp}');
-                    const localTime = utcDate.toLocaleTimeString('en-US', {{
-                        hour: 'numeric',
-                        minute: '2-digit',
-                        hour12: true
-                    }});
-                    const localDate = utcDate.toLocaleDateString('en-US', {{
-                        month: 'short',
-                        day: 'numeric'
-                    }});
-                    document.getElementById('local-time').textContent = localDate + ' ' + localTime;
-                </script>
-            """, height=30)
+            time_ago = datetime.utcnow() - st.session_state.scan_timestamp
+            if time_ago.total_seconds() < 3600:
+                st.caption(f"Last scan: {int(time_ago.total_seconds() / 60)}m ago")
+            elif time_ago.total_seconds() < 86400:
+                st.caption(f"Last scan: {int(time_ago.total_seconds() / 3600)}h ago")
+            else:
+                st.caption(f"Last scan: {time_ago.days}d ago")
     
     # Run scan
     if can_scan and 'scan_button' in locals() and scan_button:
@@ -2235,7 +2209,7 @@ def main():
         results = [r for r in all_results if r['score'] >= confluence_threshold]
         
         if results:
-            st.success(f"✅ Showing {len(results)} setups (score ≥ {confluence_threshold}) out of {len(all_results)} total found")
+            st.success(f"{len(results)} setups found (score ≥ {confluence_threshold})")
             
             # Summary metrics
             col1, col2, col3, col4 = st.columns(4)
@@ -2260,40 +2234,8 @@ def main():
             
             st.markdown("---")
             
-            # VIX Guide
-            st.subheader("📊 VIX Volatility Guide")
-            vix_data = {
-                "VIX Level": ["10-15", "15-20", "20-25", "25-30", "30-40", "40+"],
-                "Market State": ["Low volatility", "Normal", "Elevated", "High", "Very High", "Extreme"],
-                "What It Means": [
-                    "Calm market, normal position sizes",
-                    "Typical market conditions",
-                    "Start being cautious",
-                    "⚠️ Warning - reduce size 50%",
-                    "Major uncertainty, consider sitting out",
-                    "Crisis mode"
-                ]
-            }
-            vix_df = pd.DataFrame(vix_data)
-            st.table(vix_df)
-            
-            st.markdown("---")
-            
-            # Entry Reminders
-            st.markdown("""
-            <div class="entry-reminders">
-                <h4>📋 Entry Reminders</h4>
-                <ul>
-                    <li><b>Market regime aligned</b> <span title="Only take calls in bullish market (SPY > 50MA), puts in bearish market (SPY < 50MA)">ⓘ</span></li>
-                    <li><b>DTE: 45-120 days</b></li>
-                    <li><b>Strike: ATM (6/6), 1% OTM (5/6), 2% OTM (4/6)</b></li>
-                    <li><b>No earnings in next 7 days</b> (unless intentional)</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("---")
-            
+            # Filters (moved from sidebar section)
+            st.markdown("### Filter Results")
             # Filters
             st.subheader("🔍 Filter Results")
             
