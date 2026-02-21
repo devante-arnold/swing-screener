@@ -1623,11 +1623,19 @@ def render_position_details(pos, index):
     with col3:
         st.metric("Moneyness", f"{moneyness_pct:.1f}% {moneyness_status}")
     with col4:
-        # Quick P/L indicator
-        if stock_change > 0:
-            st.metric("Direction", "✅ Profitable" if (pos['option_type'] == 'CALL') else "⚠️ Against")
+        # Quick status preview (will be detailed below)
+        # Check for stop hit first
+        is_call = pos['option_type'] == 'CALL'
+        if is_call and current_price <= pos['stop']:
+            st.metric("Status", "🔴 Stop Hit", "Exit Now")
+        elif not is_call and current_price >= pos['stop']:
+            st.metric("Status", "🔴 Stop Hit", "Exit Now")
         else:
-            st.metric("Direction", "⚠️ Against" if (pos['option_type'] == 'CALL') else "✅ Profitable")
+            # Quick direction based on stock movement
+            if stock_change > 0:
+                st.metric("Status", "✅ Profitable" if is_call else "⚠️ Against", f"{stock_change:+.1f}%")
+            else:
+                st.metric("Status", "⚠️ Against" if is_call else "✅ Profitable", f"{stock_change:+.1f}%")
     
     st.markdown("---")
     
