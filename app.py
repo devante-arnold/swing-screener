@@ -239,6 +239,289 @@ def save_positions(positions):
     except:
         pass
 
+def analyze_position_status(position):
+    """
+    Analyze open position health and momentum
+    Returns: status dict with assessment and recommendation
+    """
+    try:
+        ticker = position['ticker']
+        option_type = position['option_type']
+        entry_price = position['entry_price']
+        stop = position['stop']
+        target_r1 = position['target_r1']
+        target_r2 = position['target_r2']
+        
+        # Fetch current data
+        stock = yf.Ticker(ticker)
+        data = stock.history(period='3mo')
+        
+        if data.empty or len(data) < 30:
+            return None
+        
+        current_price = data['Close'].iloc[-1]
+        
+        # Calculate key levels
+        ema_20 = data['Close'].ewm(span=20).mean().iloc[-1]
+        ema_50 = data['Close'].ewm(span=50).mean().iloc[-1]
+        
+        # Weekly pivot calculation
+        weekly = data.resample('W').agg({
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last'
+        }).dropna()
+        
+        if len(weekly) >= 2:
+            prev_week = weekly.iloc[-2]
+            pivot = (prev_week['High'] + prev_week['Low'] + prev_week['Close']) / 3
+        else:
+            pivot = current_price
+        
+        # RSI calculation
+        delta = data['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        current_rsi = rsi.iloc[-1] if not pd.isna(rsi.iloc[-1]) else 50
+        
+        # Volume analysis
+        recent_volume = data['Volume'].iloc[-5:].mean()
+        avg_volume = data['Volume'].iloc[-30:].mean()
+        volume_ratio = recent_volume / avg_volume if avg_volume > 0 else 1.0
+        
+        # 5-day momentum (same as entry filter)
+        if len(data) >= 6:
+            price_5_days_ago = data['Close'].iloc[-6]
+            five_day_change = (current_price - price_5_days_ago) / price_5_days_ago
+            
+            # Check acceleration (compare to yesterday's 5-day)
+            if len(data) >= 7:
+                price_6_days_ago = data['Close'].iloc[-7]
+                yesterday_five_day = (data['Close'].iloc[-2] - price_6_days_ago) / price_6_days_ago
+                acceleration = five_day_change - yesterday_five_day
+            else:
+                acceleration = 0
+        else:
+            five_day_change = 0
+            acceleration = 0
+        
+        # ═══════════════════════════════════════════════════
+        # EXIT SIGNAL CHECKS
+        # ═══════════════════════════════════════════════════
+        
+        is_call = option_type == "CALL"
+        
+        # Stop hit?
+        if is_call and current_price <= stop:
+            return {
+                'status': '🔴 STOP HIT',
+                'substatus': 'Exit Signal',
+                'assessment': 'Stop loss triggered.',
+                'recommendation': 'Exit entire position immediately.',
+                'priority': 'CRITICAL',
+                'details': {}
+            }
+        elif not is_call and current_price >= stop:
+            return {
+                'status': '🔴 STOP HIT',
+                'substatus': 'Exit Signal',
+                'assessment': 'Stop loss triggered.',
+                'recommendation': 'Exit entire position immediately.',
+                'priority': 'CRITICAL',
+                'details': {}
+            }
+        
+        # Target approaching?
+        if is_call:
+            dist_to_t1_pct = (target_r1 - current_price) / current_price
+        else:
+            dist_to_t1_pct = (current_price - target_r1) / current_price
+        
+        target_approaching = abs(dist_to_t1_pct) < 0.02  # Within 2%
+        
+        # ═══════════════════════════════════════════════════
+        # SETUP HEALTH CHECK
+        # ═══════════════════════════════════════════════════
+        
+        setup_score = 0
+        setup_issues = []
+        
+        # 1. EMA20 check
+        if is_call:
+            ema20_ok = current_price > ema_20
+        else:
+            ema20_ok = current_price < ema_20
+        
+        if ema20_ok:
+            setup_score += 1
+        else:
+            setup_issues.append("Price broke EMA20")
+        
+        # 2. Pivot Point check
+        if is_call:
+            pp_ok = current_price > pivot
+        else:
+            pp_ok = current_price < pivot
+        
+        if pp_ok:
+            setup_score += 1
+        else:
+            setup_issues.append("Price broke pivot")
+        
+        # 3. RSI extreme check
+        if is_call:
+            rsi_ok = current_rsi < 70
+            if not rsi_ok:
+                setup_issues.append(f"RSI overbought ({current_rsi:.0f})")
+        else:
+            rsi_ok = current_rsi > 30
+            if not rsi_ok:
+                setup_issues.append(f"RSI oversold ({current_rsi:.0f})")
+        
+        if rsi_ok:
+            setup_score += 1
+        
+        # 4. Volume check
+        volume_ok = volume_ratio > 0.8
+        if volume_ok:
+            setup_score += 1
+        else:
+            setup_issues.append("Volume dying")
+        
+        # ═══════════════════════════════════════════════════
+        # MOMENTUM CHECK
+        # ═══════════════════════════════════════════════════
+        
+        # Check if momentum is directional
+        if is_call:
+            momentum_positive = five_day_change > 0
+            momentum_strong = five_day_change > 0.03
+        else:
+            momentum_positive = five_day_change < 0
+            momentum_strong = five_day_change < -0.03
+        
+        # Check acceleration
+        if is_call:
+            momentum_accelerating = acceleration > 0
+        else:
+            momentum_accelerating = acceleration < 0
+        
+        # ═══════════════════════════════════════════════════
+        # DETERMINE STATUS
+        # ═══════════════════════════════════════════════════
+        
+        if target_approaching:
+            status = '🎯 Target Approaching'
+            substatus = 'Take Profit Zone'
+        elif setup_score == 4 and momentum_strong and momentum_accelerating:
+            status = '🟢 Setup Healthy'
+            substatus = 'Momentum Strong'
+        elif setup_score >= 3 and momentum_positive:
+            if momentum_accelerating:
+                status = '✅ Setup Intact'
+                substatus = 'Momentum Positive'
+            else:
+                status = '⚠️ Setup Intact'
+                substatus = 'Momentum Fading'
+        elif setup_score >= 2 and momentum_positive:
+            status = '⚠️ Setup Weakening'
+            substatus = 'Momentum Positive'
+        else:
+            status = '🔴 Setup Broken'
+            substatus = 'Exit Signal'
+        
+        # ═══════════════════════════════════════════════════
+        # BUILD ASSESSMENT
+        # ═══════════════════════════════════════════════════
+        
+        if setup_score == 4:
+            assessment = "All systems green. Perfect progression."
+        elif setup_score == 3:
+            assessment = f"Core structure intact. {setup_issues[0] if setup_issues else 'Minor weakness'}."
+        elif setup_score == 2:
+            assessment = f"Setup showing fatigue. {', '.join(setup_issues[:2])}."
+        else:
+            assessment = f"Setup compromised. {', '.join(setup_issues)}."
+        
+        # ═══════════════════════════════════════════════════
+        # GENERATE RECOMMENDATION
+        # ═══════════════════════════════════════════════════
+        
+        if status == '🎯 Target Approaching':
+            recommendation = f"Take 75% profit at T1 (${target_r1:.2f} - {abs(dist_to_t1_pct)*100:.1f}% away)."
+        elif status == '🟢 Setup Healthy':
+            recommendation = f"Hold for T2. Setup and momentum both excellent."
+        elif status == '✅ Setup Intact' and substatus == 'Momentum Positive':
+            recommendation = f"Hold position. Normal progression toward target."
+        elif status == '⚠️ Setup Intact' and substatus == 'Momentum Fading':
+            recommendation = f"Watch closely. Consider taking 75% at T1."
+        elif status == '⚠️ Setup Weakening':
+            recommendation = f"Take 75% at T1. Exit remaining if closes {'below' if is_call else 'above'} EMA20 (${ema_20:.2f})."
+        else:  # Setup Broken
+            recommendation = f"Exit position on next {'bounce to' if is_call else 'rejection from'} EMA20."
+        
+        # Add momentum detail
+        momentum_desc = ""
+        if abs(five_day_change) >= 0.03:
+            momentum_desc = "Strong" if momentum_positive else "Reversed"
+        elif abs(five_day_change) >= 0.01:
+            momentum_desc = "Steady" if momentum_positive else "Weak"
+        else:
+            momentum_desc = "Flat"
+        
+        if momentum_accelerating:
+            trend_strength = "Accelerating"
+        elif abs(acceleration) < 0.005:
+            trend_strength = "Steady"
+        else:
+            trend_strength = "Slowing"
+        
+        # ═══════════════════════════════════════════════════
+        # RETURN STATUS DICT
+        # ═══════════════════════════════════════════════════
+        
+        return {
+            'status': status,
+            'substatus': substatus,
+            'assessment': assessment,
+            'recommendation': recommendation,
+            'priority': 'CRITICAL' if '🔴' in status or '🎯' in status else 'NORMAL',
+            'details': {
+                'current_price': current_price,
+                'entry_price': entry_price,
+                'pct_change': ((current_price - entry_price) / entry_price) * 100,
+                'stop': stop,
+                'stop_buffer_pct': abs((stop - current_price) / current_price) * 100,
+                'target_r1': target_r1,
+                'target_r2': target_r2,
+                'dist_to_t1_pct': abs(dist_to_t1_pct) * 100,
+                'setup_score': setup_score,
+                'ema_20': ema_20,
+                'ema_20_ok': ema20_ok,
+                'pivot': pivot,
+                'pp_ok': pp_ok,
+                'rsi': current_rsi,
+                'rsi_ok': rsi_ok,
+                'volume_ratio': volume_ratio,
+                'five_day_pct': five_day_change * 100,
+                'momentum_desc': momentum_desc,
+                'trend_strength': trend_strength,
+                'setup_issues': setup_issues
+            }
+        }
+        
+    except Exception as e:
+        return {
+            'status': '⚠️ Unable to analyze',
+            'substatus': 'Data Error',
+            'assessment': f'Error fetching data: {str(e)}',
+            'recommendation': 'Manually check position.',
+            'priority': 'NORMAL',
+            'details': {}
+        }
+
 # Load positions on startup
 if not st.session_state.active_positions:
     st.session_state.active_positions = load_positions()
@@ -1336,19 +1619,97 @@ def render_position_details(pos, index):
     with col1:
         st.metric("Current Stock Price", f"${current_price:.2f}", f"{stock_change:+.1f}%")
     with col2:
-        st.metric("Days Held", f"{days_held} days", f"{dte_remaining}d DTE left")
+        st.metric("Days Held / DTE", f"{days_held} / {dte_remaining}d")
     with col3:
         st.metric("Moneyness", f"{moneyness_pct:.1f}% {moneyness_status}")
     with col4:
-        if days_held < checkpoints['quick_exit']:
-            status = "🟢 On Track"
-        elif days_held < checkpoints['max_hold']:
-            status = "⚠️ Decision Zone"
+        # Quick P/L indicator
+        if stock_change > 0:
+            st.metric("Direction", "✅ Profitable" if (pos['option_type'] == 'CALL') else "⚠️ Against")
         else:
-            status = "🔴 Max Hold!"
-        st.metric("Status", status)
+            st.metric("Direction", "⚠️ Against" if (pos['option_type'] == 'CALL') else "✅ Profitable")
     
     st.markdown("---")
+    
+    # ═══════════════════════════════════════════════════
+    # SMART STATUS ANALYSIS
+    # ═══════════════════════════════════════════════════
+    
+    st.markdown("### 🧠 Smart Position Analysis")
+    
+    with st.spinner("Analyzing position..."):
+        status_analysis = analyze_position_status(pos)
+    
+    if status_analysis:
+        # Display status prominently
+        status_color = (
+            "#ff4444" if "🔴" in status_analysis['status'] else
+            "#ffaa00" if "⚠️" in status_analysis['status'] else
+            "#44ff44" if "🟢" in status_analysis['status'] else
+            "#00aaff"
+        )
+        
+        st.markdown(
+            f"<div style='background:{status_color}22; border-left:4px solid {status_color}; "
+            f"padding:15px; border-radius:5px; margin-bottom:15px;'>"
+            f"<h4 style='margin:0; color:{status_color};'>{status_analysis['status']} | {status_analysis['substatus']}</h4>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+        
+        # Main analysis sections
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**PRICE ACTION**")
+            if status_analysis['details']:
+                d = status_analysis['details']
+                st.markdown(f"Entry: ${d['entry_price']:.2f} → Current: ${d['current_price']:.2f}")
+                st.markdown(f"Stop: ${d['stop']:.2f} ({d['stop_buffer_pct']:.1f}% buffer)")
+                st.markdown(f"Target 1: ${d['target_r1']:.2f} ({d['dist_to_t1_pct']:.1f}% away)")
+                st.markdown(f"Target 2: ${d['target_r2']:.2f}")
+            
+            st.markdown("")
+            st.markdown("**SETUP HEALTH**")
+            if status_analysis['details']:
+                d = status_analysis['details']
+                st.markdown(f"Confluence: {d['setup_score']}/4 factors")
+                st.markdown(f"• EMA20 (${d['ema_20']:.2f}): {'✓' if d['ema20_ok'] else '✗'}")
+                st.markdown(f"• Pivot (${d['pivot']:.2f}): {'✓' if d['pp_ok'] else '✗'}")
+                st.markdown(f"• RSI: {d['rsi']:.0f} {'✓' if d['rsi_ok'] else '✗'}")
+                st.markdown(f"• Volume: {d['volume_ratio']:.1f}x avg")
+                
+                if d['setup_issues']:
+                    st.caption(f"⚠️ Issues: {', '.join(d['setup_issues'])}")
+        
+        with col2:
+            st.markdown("**MOMENTUM**")
+            if status_analysis['details']:
+                d = status_analysis['details']
+                st.markdown(f"• 5-day trend: {d['five_day_pct']:+.1f}% ({d['momentum_desc']})")
+                st.markdown(f"• Trend strength: {d['trend_strength']}")
+                st.markdown(f"• Volume: {d['volume_ratio']:.1f}x average")
+            
+            st.markdown("")
+            st.markdown(f"**Assessment:** {status_analysis['assessment']}")
+        
+        st.markdown("---")
+        
+        # Recommendation box
+        rec_color = "#ff4444" if status_analysis['priority'] == 'CRITICAL' else "#00aaff"
+        st.markdown(
+            f"<div style='background:{rec_color}22; border-left:4px solid {rec_color}; "
+            f"padding:15px; border-radius:5px;'>"
+            f"<strong style='color:{rec_color};'>→ RECOMMENDED ACTION</strong><br>"
+            f"{status_analysis['recommendation']}"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+    
+    st.markdown("---")
+    
+    # Continue with existing position details below...
+    st.markdown("### 📊 Position Details")
     
     # Position info
     st.markdown("### 📋 Position Details")
